@@ -320,7 +320,10 @@ export const mutations = {
       .select('id')
       .single();
     if (error) throw error;
-    return row!.id;
+    const storeId = row!.id;
+    // Link the store back to the owner's profile so storeId is available after login
+    await w.from('profiles').update({ store_id: storeId }).eq('id', data.ownerId);
+    return storeId;
   },
 
   async updateStore(id: string, patch: Partial<Store>): Promise<void> {

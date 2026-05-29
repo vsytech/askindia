@@ -608,7 +608,11 @@ CREATE POLICY "orders_select" ON public.orders
 
 DROP POLICY IF EXISTS "orders_insert" ON public.orders;
 CREATE POLICY "orders_insert" ON public.orders
-  FOR INSERT WITH CHECK (customer_id = auth.uid() OR public.is_admin());
+  FOR INSERT WITH CHECK (
+    customer_id = auth.uid()
+    OR public.is_admin()
+    OR agent_id = auth.uid()
+  );
 
 DROP POLICY IF EXISTS "orders_update" ON public.orders;
 CREATE POLICY "orders_update" ON public.orders
@@ -627,7 +631,11 @@ CREATE POLICY "service_orders_select" ON public.service_orders
 
 DROP POLICY IF EXISTS "service_orders_insert" ON public.service_orders;
 CREATE POLICY "service_orders_insert" ON public.service_orders
-  FOR INSERT WITH CHECK (customer_id = auth.uid() OR public.is_admin());
+  FOR INSERT WITH CHECK (
+    customer_id = auth.uid()
+    OR public.is_admin()
+    OR agent_id = auth.uid()
+  );
 
 DROP POLICY IF EXISTS "service_orders_update" ON public.service_orders;
 CREATE POLICY "service_orders_update" ON public.service_orders

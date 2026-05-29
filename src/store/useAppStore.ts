@@ -73,12 +73,15 @@ interface AppState {
   deleteService: (id: string) => void;
 
   // Product orders
-  addOrder: (order: Omit<Order, 'id'>) => void;
+  addOrder: (order: Omit<Order, 'id'>, id?: string) => void;
   updateOrder: (id: string, patch: Partial<Order>) => void;
 
   // Service orders
-  addServiceOrder: (order: Omit<ServiceOrder, 'id'>) => void;
+  addServiceOrder: (order: Omit<ServiceOrder, 'id'>, id?: string) => void;
   updateServiceOrder: (id: string, patch: Partial<ServiceOrder>) => void;
+
+  // Refresh orders from Supabase (for admin/store-owner after new order arrives)
+  refreshOrders: () => Promise<void>;
 
   // Withdrawals
   addWithdrawalRequest: (req: Omit<WithdrawalRequest, 'id'>) => void;
@@ -742,6 +745,20 @@ export const useAppStore = create<AppState>()(
         }
       },
 
+      // Re-fetch orders + service orders for the current user (called by realtime hook)
+      refreshOrders: async () => {
+        const { currentUser } = get();
+        if (!currentUser) return;
+        const [ordersRes, svcOrdersRes] = await Promise.allSettled([
+          dataLoaders.loadOrders(currentUser.role, currentUser.id, currentUser.storeId),
+          dataLoaders.loadServiceOrders(currentUser.role, currentUser.id),
+        ]);
+        const patch: Partial<AppState> = {};
+        if (ordersRes.status === 'fulfilled')    patch.orders       = ordersRes.value;
+        if (svcOrdersRes.status === 'fulfilled') patch.serviceOrders = svcOrdersRes.value;
+        if (Object.keys(patch).length) set(patch);
+      },
+
       // ── Agents ──────────────────────────────────────────────────────────────
 
       addAgent: ({ password, ...agentData }) => {
@@ -904,9 +921,11 @@ export const useAppStore = create<AppState>()(
 
       // ── Product Orders ───────────────────────────────────────────────────────
 
-      addOrder: (order) => {
-        const newOrder: Order = { ...order, id: `ord_${Date.now()}` };
+      addOrder: (order, id) => {
+        const newOrder: Order = { ...order, id: id ?? `ord_${Date.now()}` };
         set(s => {
+          // Deduplicate: don't add if already present (realtime may deliver it too)
+          if (s.orders.some(o => o.id === newOrder.id)) return s;
           const agents = order.agentId
             ? s.agents.map(a =>
                 a.id === order.agentId
@@ -948,9 +967,11 @@ export const useAppStore = create<AppState>()(
 
       // ── Service Orders ───────────────────────────────────────────────────────
 
-      addServiceOrder: (order) => {
-        const newOrder: ServiceOrder = { ...order, id: `so_${Date.now()}` };
+      addServiceOrder: (order, id) => {
+        const newOrder: ServiceOrder = { ...order, id: id ?? `so_${Date.now()}` };
         set(s => {
+          // Deduplicate: don't add if already present (realtime may deliver it too)
+          if (s.serviceOrders.some(o => o.id === newOrder.id)) return s;
           // Credit agent commission if booking placed by an agent
           const agents = order.agentId
             ? s.agents.map(a =>

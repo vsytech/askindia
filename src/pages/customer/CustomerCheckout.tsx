@@ -3,8 +3,10 @@ import { AppLayout } from '../../components/layout/AppLayout';
 import { useAppStore } from '../../store/useAppStore';
 import { useNavigate } from 'react-router-dom';
 import { formatCurrency } from '../../data/mockData';
-import { CheckCircle, CreditCard, Smartphone, Wallet, Truck } from 'lucide-react';
+import { CheckCircle, CreditCard, Smartphone, Wallet, Truck, Loader2 } from 'lucide-react';
 import { useTracking } from '../../hooks/useTracking';
+import { mutations } from '../../lib/dataService';
+import { isSupabaseConfigured } from '../../lib/supabase';
 
 type Step = 'address' | 'payment' | 'success';
 
@@ -25,34 +27,43 @@ export const CustomerCheckout: React.FC = () => {
   const [payMethod, setPayMethod] = useState<'card' | 'upi' | 'wallet' | 'cod'>('upi');
   const [address, setAddress] = useState('');
   const [city, setCity] = useState('Mumbai');
+  const [placing, setPlacing] = useState(false);
+  const [placeError, setPlaceError] = useState('');
   const orderIdRef = useRef(`ORD${Date.now().toString().slice(-6)}`);
 
   const subtotal = cart.reduce((s, i) => s + i.product.price * i.quantity, 0);
   const shipping = subtotal > 999 ? 0 : 49;
   const total = subtotal + shipping;
 
-  const handlePlaceOrder = () => {
-    const targetStore = stores[0];
-    const storeId = targetStore?.id ?? 'global';
+  const handlePlaceOrder = async () => {
+    setPlacing(true);
+    setPlaceError('');
+
+    // Find the correct store for cart items (use first product's store_id if available)
+    const firstProduct = cart[0]?.product;
+    const targetStore = firstProduct
+      ? (stores.find(s => s.id === (firstProduct as any).storeId) ?? stores[0])
+      : stores[0];
+    const storeId   = targetStore?.id   ?? 'global';
     const storeName = targetStore?.name ?? 'AskIndia Store';
 
     const items = cart.map(({ product, quantity }) => ({
-      productId: product.id,
-      productName: product.name,
-      productIcon: product.imageIcon,
+      productId:    product.id,
+      productName:  product.name,
+      productIcon:  product.imageIcon,
       productColor: product.imageColor,
-      price: product.price,
+      price:        product.price,
       quantity,
-      commission: product.commission,
+      commission:   product.commission,
     }));
 
     const commissionTotal = items.reduce((s, i) => s + (i.price * i.quantity * i.commission / 100), 0);
-    const adminRevenue = total - commissionTotal;
+    const adminRevenue    = total - commissionTotal;
 
-    addOrder({
-      customerId: currentUser?.id ?? 'guest',
-      customerName: currentUser?.name ?? 'Guest',
-      customerEmail: currentUser?.email ?? '',
+    const orderData: Omit<import('../../types').Order, 'id'> = {
+      customerId:      currentUser?.id    ?? 'guest',
+      customerName:    currentUser?.name  ?? 'Guest',
+      customerEmail:   currentUser?.email ?? '',
       storeId,
       storeName,
       items,
@@ -60,18 +71,34 @@ export const CustomerCheckout: React.FC = () => {
       total,
       commissionTotal,
       adminRevenue,
-      status: 'pending',
+      status:        'pending',
       paymentMethod: payMethod,
       paymentStatus: 'paid',
-      address: address || 'Address not provided',
+      address:       address || 'Address not provided',
       city,
-      createdAt: new Date().toISOString().slice(0, 10),
-    });
+      createdAt:     new Date().toISOString(),
+    };
 
-    track('checkout_complete', { total, itemCount: cart.length }, '/shop/checkout');
-    markCartRecovered(`ac_${currentUser?.id}_latest`);
-    setStep('success');
-    setTimeout(() => { clearCart(); }, 500);
+    try {
+      if (isSupabaseConfigured) {
+        // Write to database — this makes the order visible to admin & store owner
+        const dbId = await mutations.createOrder(orderData);
+        orderIdRef.current = dbId;
+        addOrder(orderData, dbId);   // pass real DB id so Zustand matches DB
+      } else {
+        addOrder(orderData);         // mock / offline mode
+      }
+
+      track('checkout_complete', { total, itemCount: cart.length }, '/shop/checkout');
+      markCartRecovered(`ac_${currentUser?.id}_latest`);
+      setStep('success');
+      setTimeout(() => { clearCart(); }, 500);
+    } catch (err) {
+      console.error('[Checkout] createOrder failed:', err);
+      setPlaceError('Failed to place order. Please try again.');
+    } finally {
+      setPlacing(false);
+    }
   };
 
   if (step === 'success') {
@@ -212,10 +239,13 @@ export const CustomerCheckout: React.FC = () => {
                   <input className="input" placeholder="Enter UPI ID (e.g. name@paytm)" />
                 </div>
               )}
+              {placeError && (
+                <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-2">{placeError}</p>
+              )}
               <div className="flex gap-3">
-                <button onClick={() => setStep('address')} className="btn-secondary flex-1 justify-center">← Back</button>
-                <button onClick={handlePlaceOrder} className="btn-primary flex-1 justify-center py-3">
-                  Place Order & Pay {formatCurrency(total)}
+                <button onClick={() => setStep('address')} disabled={placing} className="btn-secondary flex-1 justify-center">← Back</button>
+                <button onClick={handlePlaceOrder} disabled={placing} className="btn-primary flex-1 justify-center py-3 gap-2">
+                  {placing ? <><Loader2 className="h-4 w-4 animate-spin" /> Placing Order…</> : <>Place Order & Pay {formatCurrency(total)}</>}
                 </button>
               </div>
             </div>

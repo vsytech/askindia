@@ -5,6 +5,8 @@ import { useAppStore } from '../../store/useAppStore';
 import type { Service } from '../../types';
 import { Search, X, Briefcase, CheckCircle, MapPin, Star, Clock } from 'lucide-react';
 import clsx from 'clsx';
+import { mutations } from '../../lib/dataService';
+import { isSupabaseConfigured } from '../../lib/supabase';
 
 interface BookingFormData {
   customerName: string;
@@ -86,32 +88,45 @@ export const AgentServices: React.FC = () => {
 
     const commissionAmt = getCommissionAmount(selectedService);
 
-    addServiceOrder({
-      serviceId: selectedService.id,
-      serviceTitle: selectedService.title,
-      serviceIcon: selectedService.imageIcon,
-      serviceColor: selectedService.imageColor,
-      providerId: selectedService.providerId,
-      providerName: selectedService.providerName,
-      customerId: `walkin_${Date.now()}`,
-      customerName: form.customerName.trim(),
+    const orderData: Omit<import('../../types').ServiceOrder, 'id'> = {
+      serviceId:     selectedService.id,
+      serviceTitle:  selectedService.title,
+      serviceIcon:   selectedService.imageIcon,
+      serviceColor:  selectedService.imageColor,
+      providerId:    selectedService.providerId,
+      providerName:  selectedService.providerName,
+      // Agent walk-in: use agent's own id as customer_id so RLS INSERT check passes
+      customerId:    currentUser.id,
+      customerName:  form.customerName.trim(),
       customerEmail: `${form.customerPhone.trim()}@agent.askindia`,
       customerPhone: form.customerPhone.trim(),
-      amount: selectedService.price,
-      status: 'pending',
+      amount:        selectedService.price,
+      status:        'pending',
       scheduledDate: form.scheduledDate,
-      address: form.customerAddress.trim(),
-      city: agentCity,
-      notes: form.notes.trim() || undefined,
-      agentId: currentUser.id,
-      agentName: currentUser.name,
-      agentCode: agent.agentCode,
+      address:       form.customerAddress.trim(),
+      city:          agentCity,
+      notes:         form.notes.trim() || undefined,
+      agentId:       currentUser.id,
+      agentName:     currentUser.name,
+      agentCode:     agent.agentCode,
       agentCommission: commissionAmt,
-      createdAt: new Date().toISOString(),
-    });
+      createdAt:     new Date().toISOString(),
+    };
+
+    try {
+      if (isSupabaseConfigured) {
+        const dbId = await mutations.createServiceOrder(orderData);
+        addServiceOrder(orderData, dbId);
+      } else {
+        addServiceOrder(orderData);
+      }
+      setSuccessMessage(`Booking confirmed! You earned ${formatCurrency(commissionAmt)} commission.`);
+    } catch (err) {
+      console.error('[AgentServices] createServiceOrder failed:', err);
+      setFormError('Failed to save booking. Please try again.');
+    }
 
     setSubmitting(false);
-    setSuccessMessage(`Booking confirmed! You earned ${formatCurrency(commissionAmt)} commission.`);
   };
 
   const priceLabel = (s: Service) => {

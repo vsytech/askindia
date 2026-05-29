@@ -2,6 +2,7 @@ import React, { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAppStore } from './store/useAppStore';
 import { useSupabaseInit } from './hooks/useSupabaseInit';
+import { useRealtimeOrders } from './hooks/useRealtimeOrders';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PageLoader } from './components/PageLoader';
 
@@ -89,6 +90,8 @@ export default function App() {
   // Initialise Supabase session on mount and listen for auth changes.
   // In mock mode (no env vars) this is a no-op that sets supabaseReady = true.
   useSupabaseInit();
+  // Subscribe to Supabase realtime changes for orders (admin, store_owner, provider)
+  useRealtimeOrders();
 
   return (
     <ErrorBoundary>

@@ -8,6 +8,8 @@ import {
   ChevronRight, X, CalendarDays, Loader2,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { mutations } from '../../lib/dataService';
+import { isSupabaseConfigured } from '../../lib/supabase';
 
 export const ServiceDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -48,33 +50,43 @@ export const ServiceDetail: React.FC = () => {
 
   const today = new Date().toISOString().split('T')[0];
 
-  const handleBookingSubmit = (e: React.FormEvent) => {
+  const handleBookingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!bookingDate || !bookingAddress || !currentUser) return;
     setSubmitting(true);
 
-    setTimeout(() => {
-      addServiceOrder({
-        serviceId: service.id,
-        serviceTitle: service.title,
-        serviceIcon: service.imageIcon,
-        serviceColor: service.imageColor,
-        providerId: service.providerId,
-        providerName: service.providerName,
-        customerId: currentUser.id,
-        customerName: currentUser.name,
-        customerEmail: currentUser.email,
-        amount: service.price,
-        status: 'pending',
-        scheduledDate: bookingDate,
-        address: bookingAddress,
-        city: currentUser.city ?? '',
-        notes: bookingNotes || undefined,
-        createdAt: new Date().toISOString().slice(0, 10),
-      });
-      setSubmitting(false);
+    const orderData: Omit<import('../../types').ServiceOrder, 'id'> = {
+      serviceId:     service.id,
+      serviceTitle:  service.title,
+      serviceIcon:   service.imageIcon,
+      serviceColor:  service.imageColor,
+      providerId:    service.providerId,
+      providerName:  service.providerName,
+      customerId:    currentUser.id,
+      customerName:  currentUser.name,
+      customerEmail: currentUser.email,
+      amount:        service.price,
+      status:        'pending',
+      scheduledDate: bookingDate,
+      address:       bookingAddress,
+      city:          currentUser.city ?? '',
+      notes:         bookingNotes || undefined,
+      createdAt:     new Date().toISOString(),
+    };
+
+    try {
+      if (isSupabaseConfigured) {
+        const dbId = await mutations.createServiceOrder(orderData);
+        addServiceOrder(orderData, dbId);
+      } else {
+        addServiceOrder(orderData);
+      }
       setBookingSuccess(true);
-    }, 800);
+    } catch (err) {
+      console.error('[ServiceDetail] createServiceOrder failed:', err);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const closeModal = () => {
