@@ -12,12 +12,80 @@ import type {
   UserActivityRow, CustomRoleRow, AbandonedCartRow,
 } from './database.types';
 
-// Untyped alias for write operations (INSERT / UPDATE / RPC).
-// The strict `Insert` type in database.types.ts requires every DB column,
-// even those that have DEFAULT values.  We handle correctness via DB constraints;
-// letting TypeScript check every column on every insert is overly strict here.
+// Untyped alias for Supabase JS client (public reads that don't need auth).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const w = supabase as any;
+
+// ── Direct REST layer ────────────────────────────────────────────────────────
+// The Supabase JS client routes ALL operations (reads + writes) through
+// supabase.auth.getSession() which acquires a per-project Web Lock.
+// When a stale refresh token triggers a continuous retry loop that holds
+// that lock, every subsequent getSession() hangs indefinitely.
+//
+// We avoid this entirely by making authenticated calls directly via fetch,
+// using an access_token stored here after login. This bypasses the lock
+// completely for all write operations and auth-gated reads.
+// ────────────────────────────────────────────────────────────────────────────
+
+const _base = (supabase as unknown as { supabaseUrl: string }).supabaseUrl;
+const _key  = (supabase as unknown as { supabaseKey: string }).supabaseKey;
+let _token: string | null = null;
+
+// Restore access token from localStorage on page refresh (module init).
+(function _tryRestoreToken() {
+  try {
+    const ref = _base.split('//')[1]?.split('.')[0] ?? '';
+    const raw = localStorage.getItem(`sb-${ref}-auth-token`);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { access_token?: string };
+      if (parsed?.access_token) _token = parsed.access_token;
+    }
+  } catch { /* SSR / worker — no localStorage */ }
+})();
+
+function _authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    'apikey':        _key,
+    'Authorization': `Bearer ${_token ?? ''}`,
+    'Content-Type':  'application/json',
+    ...extra,
+  };
+}
+
+async function _post(table: string, body: Record<string, unknown>): Promise<void> {
+  const res = await fetch(`${_base}/rest/v1/${table}`, {
+    method:  'POST',
+    headers: _authHeaders({ 'Prefer': 'return=minimal' }),
+    body:    JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as Record<string, string>;
+    throw new Error(err.message ?? err.error ?? `HTTP ${res.status}`);
+  }
+}
+
+async function _patch(table: string, where: string, body: Record<string, unknown>): Promise<void> {
+  const res = await fetch(`${_base}/rest/v1/${table}?${where}`, {
+    method:  'PATCH',
+    headers: _authHeaders({ 'Prefer': 'return=minimal' }),
+    body:    JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as Record<string, string>;
+    throw new Error(err.message ?? err.error ?? `HTTP ${res.status}`);
+  }
+}
+
+async function _get<T>(table: string, query: string): Promise<T[]> {
+  const res = await fetch(`${_base}/rest/v1/${table}?${query}`, {
+    headers: _authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as Record<string, string>;
+    throw new Error(err.message ?? err.error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<T[]>;
+}
 import type {
   User, Product, Service, Store, Order, ServiceOrder, Agent,
   WithdrawalRequest, Notification, HomepageConfig, UserActivity,
@@ -80,11 +148,12 @@ export const authService = {
       };
     }
 
-    // ── Step 2: write session directly to localStorage (no Web Lock needed) ──
-    // supabase-js v2 stores sessions under the key "sb-{projectRef}-auth-token".
-    // Writing it here lets the JS client (and onAuthStateChange) pick it up
-    // on the next storage event / visibility change without calling setSession(),
-    // which would block on the Web Lock the same way signInWithPassword does.
+    // ── Step 2: store token for direct REST calls + write to localStorage ───────
+    // Store the access token in the module-level _token variable so that all
+    // subsequent mutations (_post / _patch / _get) can use it without going
+    // through the Supabase JS client (which would hang on the Web Lock).
+    _token = authJson.access_token;
+
     try {
       const projectRef = baseUrl.split('//')[1]?.split('.')[0] ?? '';
       localStorage.setItem(`sb-${projectRef}-auth-token`, JSON.stringify({
@@ -159,16 +228,24 @@ export const authService = {
   },
 
   async getSession(): Promise<User | null> {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) return null;
+    // Read session directly from localStorage — avoids supabase.auth.getSession()
+    // which acquires a Web Lock that may be held by a stale-token retry loop.
+    if (!_token) return null;
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', session.user.id)
-      .single();
+    try {
+      const ref = _base.split('//')[1]?.split('.')[0] ?? '';
+      const raw = localStorage.getItem(`sb-${ref}-auth-token`);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { access_token?: string; user?: { id: string } };
+      const userId = parsed?.user?.id;
+      if (!userId) return null;
 
-    return profile ? mapProfile(profile) : null;
+      const rows = await _get<Record<string, unknown>>('profiles', `id=eq.${userId}&select=*&limit=1`);
+      const profile = rows[0];
+      return profile ? mapProfile(profile as Parameters<typeof mapProfile>[0]) : null;
+    } catch {
+      return null;
+    }
   },
 };
 
@@ -179,119 +256,97 @@ export const authService = {
 export const dataLoaders = {
 
   async loadHomepageConfig(): Promise<HomepageConfig | null> {
-    const { data } = await w.from('homepage_config').select('*').eq('id', 1).single();
-    return data ? mapHomepageConfig(data) : null;
+    const rows = await _get<HomepageConfigRow>('homepage_config', 'id=eq.1&limit=1');
+    return rows[0] ? mapHomepageConfig(rows[0]) : null;
   },
 
   async loadProducts(role: User['role'], storeId?: string): Promise<Product[]> {
-    let q = w.from('products').select('*').order('created_at', { ascending: false });
-    if (role === 'store_owner' && storeId) {
-      q = q.eq('store_id', storeId);
-    } else if (role === 'customer' || role === 'agent') {
-      q = q.eq('status', 'active');
-    }
-    const { data } = await q;
-    return (data ?? []).map(mapProduct);
+    let q = 'select=*&order=created_at.desc';
+    if (role === 'store_owner' && storeId) q += `&store_id=eq.${storeId}`;
+    else if (role === 'customer' || role === 'agent') q += '&status=eq.active';
+    const rows = await _get<ProductRow>('products', q);
+    return rows.map(mapProduct);
   },
 
   async loadServices(role: User['role'], providerId?: string): Promise<Service[]> {
-    let q = w.from('services').select('*').order('created_at', { ascending: false });
-    if (role === 'service_provider' && providerId) {
-      q = q.eq('provider_id', providerId);
-    } else {
-      q = q.eq('status', 'active');
-    }
-    const { data } = await q;
-    return (data ?? []).map(mapService);
+    let q = 'select=*&order=created_at.desc';
+    if (role === 'service_provider' && providerId) q += `&provider_id=eq.${providerId}`;
+    else q += '&status=eq.active';
+    const rows = await _get<ServiceRow>('services', q);
+    return rows.map(mapService);
   },
 
   async loadStores(): Promise<Store[]> {
-    const { data } = await supabase
-      .from('stores')
-      .select('*')
-      .order('created_at', { ascending: false });
-    return (data ?? []).map(mapStore);
+    const rows = await _get<StoreRow>('stores', 'select=*&order=created_at.desc');
+    return rows.map(mapStore);
   },
 
   async loadOrders(role: User['role'], userId?: string, storeId?: string): Promise<Order[]> {
-    let q = w.from('orders').select('*').order('created_at', { ascending: false });
-    if (role === 'customer' && userId)    q = q.eq('customer_id', userId);
-    if (role === 'store_owner' && storeId) q = q.eq('store_id', storeId);
-    if (role === 'agent' && userId)       q = q.eq('agent_id', userId);
-    const { data } = await q;
-    return (data ?? []).map(mapOrder);
+    let q = 'select=*&order=created_at.desc';
+    if (role === 'customer'   && userId)   q += `&customer_id=eq.${userId}`;
+    if (role === 'store_owner' && storeId) q += `&store_id=eq.${storeId}`;
+    if (role === 'agent'      && userId)   q += `&agent_id=eq.${userId}`;
+    const rows = await _get<OrderRow>('orders', q);
+    return rows.map(mapOrder);
   },
 
   async loadServiceOrders(role: User['role'], userId?: string): Promise<ServiceOrder[]> {
-    let q = w.from('service_orders').select('*').order('created_at', { ascending: false });
-    if (role === 'customer' && userId)         q = q.eq('customer_id', userId);
-    if (role === 'service_provider' && userId) q = q.eq('provider_id', userId);
-    if (role === 'agent' && userId)            q = q.eq('agent_id',    userId);
-    const { data } = await q;
-    return (data ?? []).map(mapServiceOrder);
+    let q = 'select=*&order=created_at.desc';
+    if (role === 'customer'          && userId) q += `&customer_id=eq.${userId}`;
+    if (role === 'service_provider'  && userId) q += `&provider_id=eq.${userId}`;
+    if (role === 'agent'             && userId) q += `&agent_id=eq.${userId}`;
+    const rows = await _get<ServiceOrderRow>('service_orders', q);
+    return rows.map(mapServiceOrder);
   },
 
   async loadNotifications(userId: string): Promise<Notification[]> {
-    const { data } = await supabase
-      .from('notifications')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(100);
-    return (data ?? []).map(mapNotification);
+    const rows = await _get<NotificationRow>(
+      'notifications',
+      `user_id=eq.${userId}&order=created_at.desc&limit=100`,
+    );
+    return rows.map(mapNotification);
   },
 
   async loadAgents(): Promise<Agent[]> {
-    const { data } = await supabase
-      .from('agents')
-      .select('*, profiles!agents_id_fkey(name, email, phone, city, state)')
-      .order('created_at', { ascending: false });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (data ?? []).map((row: any) =>
-      mapAgent(row as AgentRow, row.profiles ?? undefined)
+    type AgentWithProfile = AgentRow & { profiles?: { name: string; email: string; phone: string | null; city: string | null; state: string | null } | null };
+    const rows = await _get<AgentWithProfile>(
+      'agents',
+      'select=*,profiles!agents_id_fkey(name,email,phone,city,state)&order=created_at.desc',
     );
+    return rows.map(row => mapAgent(row as AgentRow, row.profiles ?? undefined));
   },
 
   async loadWithdrawalRequests(entityId?: string): Promise<WithdrawalRequest[]> {
-    let q = w.from('withdrawal_requests').select('*').order('requested_at', { ascending: false });
-    if (entityId) q = q.eq('entity_id', entityId);
-    const { data } = await q;
-    return (data ?? []).map(mapWithdrawal);
+    let q = 'select=*&order=requested_at.desc';
+    if (entityId) q += `&entity_id=eq.${entityId}`;
+    const rows = await _get<WithdrawalRequestRow>('withdrawal_requests', q);
+    return rows.map(mapWithdrawal);
   },
 
   async loadUserActivities(): Promise<UserActivity[]> {
-    const { data } = await supabase
-      .from('user_activities')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(500);
-    return (data ?? []).map(mapUserActivity);
+    const rows = await _get<UserActivityRow>('user_activities', 'select=*&order=created_at.desc&limit=500');
+    return rows.map(mapUserActivity);
   },
 
   async loadAbandonedCarts(): Promise<AbandonedCart[]> {
-    const { data } = await supabase
-      .from('abandoned_carts')
-      .select('*')
-      .order('last_activity', { ascending: false });
-    return (data ?? []).map(mapAbandonedCart);
+    const rows = await _get<AbandonedCartRow>('abandoned_carts', 'select=*&order=last_activity.desc');
+    return rows.map(mapAbandonedCart);
   },
 
   async loadCustomRoles(): Promise<Role[]> {
-    const { data } = await w.from('custom_roles').select('*');
-    return (data ?? []).map(mapCustomRole);
+    const rows = await _get<CustomRoleRow>('custom_roles', 'select=*');
+    return rows.map(mapCustomRole);
   },
 
   async loadProviderInvoiceSettings(providerId: string): Promise<InvoiceSettings | null> {
-    const { data } = await supabase
-      .from('profiles')
-      .select('store_id, stores!profiles_store_id_fkey(invoice_settings)')
-      .eq('id', providerId)
-      .single();
-
+    type ProfileWithStore = { store_id: string | null; stores?: { invoice_settings: unknown } | null };
+    const rows = await _get<ProfileWithStore>(
+      'profiles',
+      `id=eq.${providerId}&select=store_id,stores!profiles_store_id_fkey(invoice_settings)&limit=1`,
+    );
+    const data = rows[0];
     if (!data) return null;
-    // For service providers, invoice settings stored on their profile or linked store
-    const storeData = data as unknown as { stores?: { invoice_settings: unknown } | null };
-    return (storeData.stores?.invoice_settings ?? {}) as InvoiceSettings;
+    return (data.stores?.invoice_settings ?? {}) as InvoiceSettings;
   },
 };
 
@@ -493,23 +548,17 @@ export const mutations = {
 
   async createOrder(data: Omit<Order, 'id'>): Promise<string> {
     const orderId = 'ORD' + Date.now().toString(36).toUpperCase();
-
-    // store_id column is UUID — pass null for demo/placeholder IDs that aren't real UUIDs
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const storeId = UUID_RE.test(data.storeId ?? '') ? data.storeId : null;
 
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Supabase timeout')), 8000)
-    );
-
-    const insert = w.from('orders').insert({
+    await _post('orders', {
       id:                  orderId,
       customer_id:         data.customerId,
       customer_name:       data.customerName,
       customer_email:      data.customerEmail,
       store_id:            storeId,
       store_name:          data.storeName,
-      items:               data.items as unknown as import('./database.types').Json,
+      items:               data.items,
       subtotal:            data.subtotal,
       total:               data.total,
       commission_total:    data.commissionTotal,
@@ -529,9 +578,6 @@ export const mutations = {
       razorpay_order_id:   null,
       razorpay_payment_id: null,
     });
-
-    const { error } = await Promise.race([insert, timeout]);
-    if (error) throw error;
     return orderId;
   },
 
@@ -542,8 +588,7 @@ export const mutations = {
     if (patch.paymentMethod   !== undefined) update.payment_method   = patch.paymentMethod;
     if (patch.trackingNumber  !== undefined) update.tracking_number  = patch.trackingNumber;
     if (patch.courierName     !== undefined) update.courier_name     = patch.courierName;
-    const { error } = await w.from('orders').update(update).eq('id', id);
-    if (error) throw error;
+    await _patch('orders', `id=eq.${id}`, update);
   },
 
   // ── Service Orders ──────────────────────────────────────────────────────────
@@ -551,7 +596,7 @@ export const mutations = {
   async createServiceOrder(data: Omit<ServiceOrder, 'id'>): Promise<string> {
     const orderId = 'SVC' + Date.now().toString(36).toUpperCase();
 
-    const { error } = await w.from('service_orders').insert({
+    await _post('service_orders', {
       id:               orderId,
       service_id:       data.serviceId,
       service_title:    data.serviceTitle,
@@ -575,29 +620,26 @@ export const mutations = {
       agent_code:       data.agentCode       ?? null,
       agent_commission: data.agentCommission ?? null,
     });
-    if (error) throw error;
     return orderId;
   },
 
   async updateServiceOrder(id: string, patch: Partial<ServiceOrder>): Promise<void> {
     const update: Record<string, unknown> = {};
-    if (patch.status       !== undefined) update.status        = patch.status;
-    if (patch.notes        !== undefined) update.notes         = patch.notes;
-    const { error } = await w.from('service_orders').update(update).eq('id', id);
-    if (error) throw error;
+    if (patch.status !== undefined) update.status = patch.status;
+    if (patch.notes  !== undefined) update.notes  = patch.notes;
+    await _patch('service_orders', `id=eq.${id}`, update);
   },
 
   // ── Notifications ───────────────────────────────────────────────────────────
 
   async createNotification(userId: string, notif: Omit<Notification, 'id' | 'createdAt' | 'read'>): Promise<void> {
-    const { error } = await w.from('notifications').insert({
+    await _post('notifications', {
       user_id: userId,
       type:    notif.type,
       title:   notif.title,
       message: notif.message,
       link:    notif.link ?? null,
     });
-    if (error) throw error;
   },
 
   async markNotificationRead(id: string): Promise<void> {
@@ -739,7 +781,7 @@ export const mutations = {
     if (patch.phone !== undefined) update.phone = patch.phone;
     if (patch.city  !== undefined) update.city  = patch.city;
     if (patch.state !== undefined) update.state = patch.state;
-    await w.from('profiles').update(update).eq('id', userId);
+    await _patch('profiles', `id=eq.${userId}`, update);
   },
 };
 
