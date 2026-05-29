@@ -1,51 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppLayout } from '../../components/layout/AppLayout';
 import { useAppStore } from '../../store/useAppStore';
 import { formatCurrency } from '../../data/mockData';
 import { useNavigate } from 'react-router-dom';
 import {
   Palette, Layout, Star, Globe, Megaphone, QrCode,
-  Save, Eye, ChevronDown, ChevronUp, Check, X, ExternalLink,
+  Save, Eye, ChevronDown, ChevronUp, Share2, Check,
 } from 'lucide-react';
+import { QRCanvas, StoreShareModal } from '../../components/ui/StoreShareModal';
 import clsx from 'clsx';
-
-// ── QR Code generator (pure SVG, no library needed) ──────────────────────────
-// Simplified: uses a dummy pattern. For a real app you'd use qrcode package.
-// We'll encode the URL as a visual placeholder that looks like a QR.
-const QRCodeSVG: React.FC<{ value: string; size?: number }> = ({ value, size = 128 }) => {
-  // Generate a deterministic cell pattern from the string
-  const cells = 21;
-  const pattern: boolean[][] = Array.from({ length: cells }, (_, r) =>
-    Array.from({ length: cells }, (_, c) => {
-      if (r < 7 && c < 7) return (r === 0 || r === 6 || c === 0 || c === 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4));
-      if (r < 7 && c > cells - 8) return (r === 0 || r === 6 || c === cells - 7 || c === cells - 1 || (r >= 2 && r <= 4 && c >= cells - 6 && c <= cells - 4));
-      if (r > cells - 8 && c < 7) return (r === cells - 7 || r === cells - 1 || c === 0 || c === 6 || (r >= cells - 6 && r <= cells - 4 && c >= 2 && c <= 4));
-      const hash = [...value].reduce((acc, ch, i) => acc ^ (ch.charCodeAt(0) * (r * cells + c + i + 1)), 0);
-      return !!(hash & 1);
-    })
-  );
-
-  const cellSize = size / cells;
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} xmlns="http://www.w3.org/2000/svg">
-      <rect width={size} height={size} fill="white" />
-      {pattern.map((row, r) =>
-        row.map((cell, c) =>
-          cell ? (
-            <rect
-              key={`${r}-${c}`}
-              x={c * cellSize}
-              y={r * cellSize}
-              width={cellSize}
-              height={cellSize}
-              fill="black"
-            />
-          ) : null
-        )
-      )}
-    </svg>
-  );
-};
 
 // ── Section wrapper ──────────────────────────────────────────────────────────
 const Section: React.FC<{
@@ -106,6 +69,7 @@ export const StoreCustomize: React.FC = () => {
     store?.customization?.featuredProductIds ?? []
   );
   const [showQr, setShowQr] = useState(store?.customization?.showQr ?? true);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [customBadge, setCustomBadge] = useState(store?.customization?.customBadge ?? '');
   const [socialWhatsapp, setSocialWhatsapp] = useState(store?.customization?.socialWhatsapp ?? '');
   const [socialInstagram, setSocialInstagram] = useState(store?.customization?.socialInstagram ?? '');
@@ -163,8 +127,8 @@ export const StoreCustomize: React.FC = () => {
     );
   }
 
-  const previewUrl = `${store.slug}.askindia.shop`;
   const storeUrl = `/shop/store/${store.slug}`;
+  const storeFullUrl = `${window.location.origin}/shop/store/${store.slug}`;
 
   return (
     <AppLayout title="Customize Store">
@@ -175,18 +139,23 @@ export const StoreCustomize: React.FC = () => {
           <div>
             <h2 className="text-xl font-bold text-slate-900">Customize Your Store</h2>
             <p className="text-sm text-slate-500 mt-0.5">
-              Personalise your storefront — changes reflect live at{' '}
-              <span className="font-mono text-brand-600">{previewUrl}</span>
+              Personalise your storefront — changes reflect live for your customers.
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowShareModal(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              <Share2 className="h-4 w-4" />
+              Share Store
+            </button>
             <button
               onClick={() => navigate(storeUrl)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
             >
               <Eye className="h-4 w-4" />
-              Preview Store
-              <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
+              Preview
             </button>
             <button
               onClick={handleSave}
@@ -499,7 +468,7 @@ export const StoreCustomize: React.FC = () => {
                 <div
                   className={clsx(
                     'absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all',
-                    showQr ? 'left-5.5 left-[22px]' : 'left-0.5'
+                    showQr ? 'left-[22px]' : 'left-0.5'
                   )}
                 />
               </div>
@@ -512,13 +481,14 @@ export const StoreCustomize: React.FC = () => {
             {showQr && (
               <div className="flex flex-col sm:flex-row items-start gap-6">
                 <div className="bg-white border-2 border-slate-200 rounded-2xl p-4 inline-block">
-                  <QRCodeSVG value={`https://${previewUrl}`} size={128} />
-                  <p className="text-[10px] text-slate-400 text-center mt-2 font-mono">{previewUrl}</p>
+                  <QRCanvas value={storeFullUrl} size={128} />
+                  <p className="text-[10px] text-slate-400 text-center mt-2 font-mono truncate max-w-[128px]">
+                    {storeFullUrl.replace('https://', '')}
+                  </p>
                 </div>
                 <div className="flex-1 space-y-3">
                   <p className="text-sm text-slate-600">
-                    This QR code links to your store at{' '}
-                    <span className="font-mono font-semibold text-brand-600">{previewUrl}</span>
+                    This QR code is scannable by any smartphone camera and links directly to your store.
                   </p>
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-500 space-y-1">
                     <p>✅ Share on WhatsApp, social media, or print on visiting cards</p>
@@ -526,26 +496,11 @@ export const StoreCustomize: React.FC = () => {
                     <p>✅ Works with any smartphone camera</p>
                   </div>
                   <button
-                    onClick={() => {
-                      const canvas = document.createElement('canvas');
-                      canvas.width = 200;
-                      canvas.height = 200;
-                      const ctx = canvas.getContext('2d');
-                      if (!ctx) return;
-                      ctx.fillStyle = 'white';
-                      ctx.fillRect(0, 0, 200, 200);
-                      ctx.fillStyle = 'black';
-                      ctx.font = '12px monospace';
-                      ctx.fillText(`QR: ${previewUrl}`, 10, 100);
-                      const link = document.createElement('a');
-                      link.download = `${store.slug}-qr.png`;
-                      link.href = canvas.toDataURL();
-                      link.click();
-                    }}
+                    onClick={() => setShowShareModal(true)}
                     className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 text-white text-xs font-semibold hover:bg-brand-700 transition-colors"
                   >
-                    <QrCode className="h-3.5 w-3.5" />
-                    Download QR Code
+                    <Share2 className="h-3.5 w-3.5" />
+                    Share & Download QR
                   </button>
                 </div>
               </div>
@@ -581,6 +536,14 @@ export const StoreCustomize: React.FC = () => {
           </button>
         </div>
       </div>
+
+      <StoreShareModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        storeUrl={storeFullUrl}
+        storeName={store.name}
+        storeSlug={store.slug}
+      />
     </AppLayout>
   );
 };

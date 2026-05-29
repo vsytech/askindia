@@ -4,37 +4,13 @@ import { useAppStore } from '../../store/useAppStore';
 import { formatCurrency } from '../../data/mockData';
 import type { Product } from '../../types';
 import {
-  ShoppingCart, ArrowLeft, Star, ShoppingBag, User, AlertTriangle,
+  ArrowLeft, ShoppingBag, ShoppingCart, User, AlertTriangle,
   Store as StoreIcon, Globe, Instagram, Facebook, MessageCircle,
-  QrCode, LayoutGrid, List, Megaphone,
+  LayoutGrid, List, Megaphone, Share2, Star,
 } from 'lucide-react';
+import { QRCanvas, StoreShareModal } from '../../components/ui/StoreShareModal';
 import { BottomNav } from '../../components/layout/BottomNav';
 import clsx from 'clsx';
-
-// ── Simple deterministic QR SVG ──────────────────────────────────────────────
-const QRMini: React.FC<{ value: string; size?: number }> = ({ value, size = 100 }) => {
-  const cells = 21;
-  const pattern: boolean[][] = Array.from({ length: cells }, (_, r) =>
-    Array.from({ length: cells }, (_, c) => {
-      if (r < 7 && c < 7) return (r === 0 || r === 6 || c === 0 || c === 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4));
-      if (r < 7 && c > cells - 8) return (r === 0 || r === 6 || c === cells - 7 || c === cells - 1 || (r >= 2 && r <= 4 && c >= cells - 6 && c <= cells - 4));
-      if (r > cells - 8 && c < 7) return (r === cells - 7 || r === cells - 1 || c === 0 || c === 6 || (r >= cells - 6 && r <= cells - 4 && c >= 2 && c <= 4));
-      const hash = [...value].reduce((acc, ch, i) => acc ^ (ch.charCodeAt(0) * (r * cells + c + i + 1)), 0);
-      return !!(hash & 1);
-    })
-  );
-  const cs = size / cells;
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} xmlns="http://www.w3.org/2000/svg">
-      <rect width={size} height={size} fill="white" />
-      {pattern.map((row, r) =>
-        row.map((cell, c) =>
-          cell ? <rect key={`${r}-${c}`} x={c * cs} y={r * cs} width={cs} height={cs} fill="black" /> : null
-        )
-      )}
-    </svg>
-  );
-};
 
 export const StoreStorefront: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -45,12 +21,26 @@ export const StoreStorefront: React.FC = () => {
   const [layoutOverride, setLayoutOverride] = useState<'grid' | 'list' | null>(null);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [showShareModal, setShowShareModal] = useState(false);
 
   const store = stores.find(s => s.slug === slug || s.subdomain === slug);
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0);
 
   const custom = store?.customization;
   const layout = layoutOverride ?? custom?.layoutStyle ?? 'grid';
+
+  // ── All useMemo hooks MUST be before any early returns (Rules of Hooks) ──────
+  const allActiveProducts = useMemo(
+    () => products.filter(p => p.status === 'active' && (!store || true)),
+    [products]
+  );
+  const pinnedIds = custom?.featuredProductIds ?? [];
+  const sorted = useMemo(() => {
+    if (!store) return allActiveProducts;
+    const pinned = pinnedIds.map(id => allActiveProducts.find(p => p.id === id)).filter(Boolean) as Product[];
+    const rest = allActiveProducts.filter(p => !pinnedIds.includes(p.id));
+    return [...pinned, ...rest];
+  }, [allActiveProducts, pinnedIds, store]);
 
   const handleAddToCart = (product: Product) => {
     addToCart(product, 1);
@@ -122,16 +112,6 @@ export const StoreStorefront: React.FC = () => {
   }
 
   // ── Active store ────────────────────────────────────────────────────────────
-  const allActiveProducts = products.filter(p => p.status === 'active');
-
-  // Sort: featured pinned items first, then others
-  const pinnedIds = custom?.featuredProductIds ?? [];
-  const sorted = useMemo(() => {
-    const pinned = pinnedIds.map(id => allActiveProducts.find(p => p.id === id)).filter(Boolean) as Product[];
-    const rest = allActiveProducts.filter(p => !pinnedIds.includes(p.id));
-    return [...pinned, ...rest];
-  }, [allActiveProducts, pinnedIds]);
-
   const categories = Array.from(new Set(sorted.map(p => p.category)));
 
   const displayed = sorted.filter(p => {
@@ -140,7 +120,7 @@ export const StoreStorefront: React.FC = () => {
     return matchSearch && matchCat;
   });
 
-  const storeUrl = `${store.slug}.askindia.shop`;
+  const storeFullUrl = `${window.location.origin}/shop/store/${store.slug}`;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -222,9 +202,13 @@ export const StoreStorefront: React.FC = () => {
                 {custom?.bannerSubtext || store.tagline}
               </p>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-mono bg-white/20 text-white px-2.5 py-1 rounded-lg">
-                  {storeUrl}
-                </span>
+                <button
+                  onClick={() => setShowShareModal(true)}
+                  className="flex items-center gap-1.5 text-xs bg-white/20 hover:bg-white/30 text-white px-2.5 py-1 rounded-lg transition-colors"
+                >
+                  <Share2 className="h-3 w-3" />
+                  Share Store
+                </button>
                 <span className="flex items-center gap-1 text-xs bg-emerald-400/30 text-emerald-100 border border-emerald-300/40 px-2.5 py-1 rounded-lg font-medium">
                   <span>✓</span> Verified Store
                 </span>
@@ -284,12 +268,15 @@ export const StoreStorefront: React.FC = () => {
 
             {/* QR code */}
             {custom?.showQr !== false && (
-              <div className="hidden sm:flex flex-col items-center gap-1 ml-auto flex-shrink-0">
-                <div className="bg-white rounded-xl p-2 shadow-lg">
-                  <QRMini value={`https://${storeUrl}`} size={80} />
+              <button
+                onClick={() => setShowShareModal(true)}
+                className="hidden sm:flex flex-col items-center gap-1 ml-auto flex-shrink-0 group"
+              >
+                <div className="bg-white rounded-xl p-2 shadow-lg group-hover:scale-105 transition-transform">
+                  <QRCanvas value={storeFullUrl} size={80} />
                 </div>
-                <p className="text-white/60 text-[10px] text-center">Scan to share</p>
-              </div>
+                <p className="text-white/60 text-[10px] text-center">Tap to share</p>
+              </button>
             )}
           </div>
         </div>
@@ -543,6 +530,14 @@ export const StoreStorefront: React.FC = () => {
       </main>
 
       <BottomNav />
+
+      <StoreShareModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        storeUrl={storeFullUrl}
+        storeName={store.name}
+        storeSlug={store.slug}
+      />
     </div>
   );
 };

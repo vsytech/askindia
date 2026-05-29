@@ -94,6 +94,13 @@ export default defineConfig(({ mode }) => {
       },
     },
 
+    // ── Resolve ────────────────────────────────────────────────
+    resolve: {
+      // Ensure only one copy of React is used (prevents "invalid hook" errors
+      // when third-party packages like qrcode.react bundle their own React).
+      dedupe: ['react', 'react-dom'],
+    },
+
     // ── Optimise Dependencies ──────────────────────────────────
     optimizeDeps: {
       include: [
@@ -103,6 +110,7 @@ export default defineConfig(({ mode }) => {
         'zustand',
         'clsx',
         'lucide-react',
+        'qrcode.react',
       ],
     },
 
