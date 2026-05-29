@@ -86,6 +86,35 @@ async function _get<T>(table: string, query: string): Promise<T[]> {
   }
   return res.json() as Promise<T[]>;
 }
+
+// INSERT and return the created row (uses PostgREST "return=representation").
+async function _postReturn<T>(table: string, body: Record<string, unknown>): Promise<T> {
+  const res = await fetch(`${_base}/rest/v1/${table}`, {
+    method: 'POST',
+    headers: _authHeaders({
+      'Prefer': 'return=representation',
+      'Accept': 'application/vnd.pgrst.object+json',
+    }),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as Record<string, string>;
+    throw new Error(err.message ?? err.error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function _delete(table: string, where: string): Promise<void> {
+  const res = await fetch(`${_base}/rest/v1/${table}?${where}`, {
+    method: 'DELETE',
+    headers: _authHeaders({ 'Prefer': 'return=minimal' }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as Record<string, string>;
+    throw new Error(err.message ?? err.error ?? `HTTP ${res.status}`);
+  }
+}
+
 import type {
   User, Product, Service, Store, Order, ServiceOrder, Agent,
   WithdrawalRequest, Notification, HomepageConfig, UserActivity,
@@ -212,13 +241,15 @@ export const authService = {
     if (error || !data.user) return { success: false, error: error?.message ?? 'Registration failed.' };
 
     // Patch the profile (trigger creates it, but may need a moment)
-    await w.from('profiles').update({
+    // Store the token so _patch works immediately after signup
+    _token = data.session?.access_token ?? null;
+    await _patch('profiles', `id=eq.${data.user.id}`, {
       name:  opts.name,
       role:  opts.role,
       phone: opts.phone  ?? null,
       city:  opts.city   ?? null,
       state: opts.state  ?? null,
-    }).eq('id', data.user.id);
+    });
 
     return { success: true, userId: data.user.id };
   },
@@ -360,35 +391,30 @@ export const mutations = {
 
   async createProduct(data: Omit<Product, 'id' | 'createdAt' | 'sold'> & { storeId: string }): Promise<string> {
     const { storeId, ...rest } = data;
-    const { data: row, error } = await w
-      .from('products')
-      .insert({
-        store_id:         storeId,
-        name:             rest.name,
-        description:      rest.description,
-        price:            rest.price,
-        mrp:              rest.mrp,
-        commission:       rest.commission,
-        category_id:      rest.categoryId,
-        category:         rest.category,
-        brand:            rest.brand ?? null,
-        stock:            rest.stock,
-        image_color:      rest.imageColor,
-        image_icon:       rest.imageIcon,
-        images:           rest.images ?? [],
-        status:           rest.status,
-        featured:         rest.featured,
-        available_cities: rest.availableCities,
-        tags:             rest.tags ?? [],
-        highlights:       rest.highlights ?? [],
-        specifications:   (rest.specifications ?? []) as unknown as import('./database.types').Json,
-        warranty:         rest.warranty ?? '',
-        return_policy:    rest.returnPolicy ?? '',
-      })
-      .select('id')
-      .single();
-    if (error) throw error;
-    return row!.id;
+    const row = await _postReturn<{ id: string }>('products', {
+      store_id:         storeId,
+      name:             rest.name,
+      description:      rest.description,
+      price:            rest.price,
+      mrp:              rest.mrp,
+      commission:       rest.commission,
+      category_id:      rest.categoryId,
+      category:         rest.category,
+      brand:            rest.brand ?? null,
+      stock:            rest.stock,
+      image_color:      rest.imageColor,
+      image_icon:       rest.imageIcon,
+      images:           rest.images ?? [],
+      status:           rest.status,
+      featured:         rest.featured,
+      available_cities: rest.availableCities,
+      tags:             rest.tags ?? [],
+      highlights:       rest.highlights ?? [],
+      specifications:   rest.specifications ?? [],
+      warranty:         rest.warranty ?? '',
+      return_policy:    rest.returnPolicy ?? '',
+    });
+    return row.id;
   },
 
   async updateProduct(id: string, patch: Partial<Product>): Promise<void> {
@@ -406,50 +432,43 @@ export const mutations = {
     if (patch.availableCities !== undefined) update.available_cities = patch.availableCities;
     if (patch.tags           !== undefined) update.tags             = patch.tags;
     if (patch.highlights     !== undefined) update.highlights       = patch.highlights;
-    if (patch.specifications !== undefined) update.specifications   = patch.specifications as unknown as import('./database.types').Json;
+    if (patch.specifications !== undefined) update.specifications   = patch.specifications;
     if (patch.brand          !== undefined) update.brand            = patch.brand;
     if (patch.warranty       !== undefined) update.warranty         = patch.warranty;
     if (patch.returnPolicy   !== undefined) update.return_policy    = patch.returnPolicy;
-    const { error } = await w.from('products').update(update).eq('id', id);
-    if (error) throw error;
+    await _patch('products', `id=eq.${id}`, update);
   },
 
   async deleteProduct(id: string): Promise<void> {
-    const { error } = await w.from('products').delete().eq('id', id);
-    if (error) throw error;
+    await _delete('products', `id=eq.${id}`);
   },
 
   // ── Stores ─────────────────────────────────────────────────────────────────
 
   async createStore(data: Omit<Store, 'id' | 'createdAt' | 'totalSales' | 'totalOrders' | 'walletBalance'>): Promise<string> {
-    const { data: row, error } = await w
-      .from('stores')
-      .insert({
-        owner_id:        data.ownerId,
-        owner_name:      data.ownerName,
-        name:            data.name,
-        slug:            data.slug,
-        tagline:         data.tagline,
-        description:     data.description ?? '',
-        logo:            data.logo,
-        theme_color:     data.themeColor,
-        city:            data.city,
-        state:           data.state,
-        store_type:      data.storeType,
-        status:          data.status,
-        commission_rate: data.commissionRate,
-        subdomain:       data.subdomain,
-        contact_email:   data.contactEmail ?? null,
-        contact_phone:   data.contactPhone ?? null,
-        gst_number:      data.gstNumber ?? null,
-        invoice_settings: (data.invoiceSettings ?? {}) as unknown as import('./database.types').Json,
-      })
-      .select('id')
-      .single();
-    if (error) throw error;
-    const storeId = row!.id;
+    const row = await _postReturn<{ id: string }>('stores', {
+      owner_id:         data.ownerId,
+      owner_name:       data.ownerName,
+      name:             data.name,
+      slug:             data.slug,
+      tagline:          data.tagline,
+      description:      data.description ?? '',
+      logo:             data.logo,
+      theme_color:      data.themeColor,
+      city:             data.city,
+      state:            data.state,
+      store_type:       data.storeType,
+      status:           data.status,
+      commission_rate:  data.commissionRate,
+      subdomain:        data.subdomain,
+      contact_email:    data.contactEmail ?? null,
+      contact_phone:    data.contactPhone ?? null,
+      gst_number:       data.gstNumber ?? null,
+      invoice_settings: data.invoiceSettings ?? {},
+    });
+    const storeId = row.id;
     // Link the store back to the owner's profile so storeId is available after login
-    await w.from('profiles').update({ store_id: storeId }).eq('id', data.ownerId);
+    await _patch('profiles', `id=eq.${data.ownerId}`, { store_id: storeId });
     return storeId;
   },
 
@@ -476,46 +495,40 @@ export const mutations = {
     if (patch.activatedBy     !== undefined) update.activated_by      = patch.activatedBy;
     if (patch.rejectedAt      !== undefined) update.rejected_at       = patch.rejectedAt;
     if (patch.rejectionReason !== undefined) update.rejection_reason  = patch.rejectionReason;
-    if (patch.invoiceSettings !== undefined) update.invoice_settings  = patch.invoiceSettings as unknown as import('./database.types').Json;
-    if (patch.customization   !== undefined) update.customization     = patch.customization as unknown as import('./database.types').Json;
-    const { error } = await w.from('stores').update(update).eq('id', id);
-    if (error) throw error;
+    if (patch.invoiceSettings !== undefined) update.invoice_settings  = patch.invoiceSettings;
+    if (patch.customization   !== undefined) update.customization     = patch.customization;
+    await _patch('stores', `id=eq.${id}`, update);
   },
 
   // ── Services ───────────────────────────────────────────────────────────────
 
   async createService(data: Omit<Service, 'id' | 'createdAt' | 'rating' | 'reviewCount'>): Promise<string> {
-    const { data: row, error } = await w
-      .from('services')
-      .insert({
-        provider_id:      data.providerId,
-        provider_name:    data.providerName,
-        store_id:         null,
-        title:            data.title,
-        description:      data.description,
-        category:         data.category,
-        subcategory:      data.subcategory ?? null,
-        price:            data.price,
-        price_type:       data.priceType,
-        commission:       data.commission,
-        delivery_time:    data.deliveryTime,
-        image_color:      data.imageColor,
-        image_icon:       data.imageIcon,
-        thumbnail:        null,
-        images:           data.images ?? [],
-        status:           data.status,
-        featured:         data.featured,
-        available_cities: data.availableCities,
-        tags:             data.tags,
-        includes:         data.includes ?? [],
-        process:          (data.process ?? []) as unknown as import('./database.types').Json,
-        rating:           0,
-        review_count:     0,
-      })
-      .select('id')
-      .single();
-    if (error) throw error;
-    return row!.id;
+    const row = await _postReturn<{ id: string }>('services', {
+      provider_id:      data.providerId,
+      provider_name:    data.providerName,
+      store_id:         null,
+      title:            data.title,
+      description:      data.description,
+      category:         data.category,
+      subcategory:      data.subcategory ?? null,
+      price:            data.price,
+      price_type:       data.priceType,
+      commission:       data.commission,
+      delivery_time:    data.deliveryTime,
+      image_color:      data.imageColor,
+      image_icon:       data.imageIcon,
+      thumbnail:        null,
+      images:           data.images ?? [],
+      status:           data.status,
+      featured:         data.featured,
+      available_cities: data.availableCities,
+      tags:             data.tags,
+      includes:         data.includes ?? [],
+      process:          data.process ?? [],
+      rating:           0,
+      review_count:     0,
+    });
+    return row.id;
   },
 
   async updateService(id: string, patch: Partial<Service>): Promise<void> {
@@ -531,17 +544,15 @@ export const mutations = {
     if (patch.availableCities !== undefined) update.available_cities = patch.availableCities;
     if (patch.tags           !== undefined) update.tags            = patch.tags;
     if (patch.includes       !== undefined) update.includes        = patch.includes;
-    if (patch.process        !== undefined) update.process         = patch.process as unknown as import('./database.types').Json;
+    if (patch.process        !== undefined) update.process         = patch.process;
     if (patch.deliveryTime   !== undefined) update.delivery_time   = patch.deliveryTime;
     if (patch.rating         !== undefined) update.rating          = patch.rating;
     if (patch.reviewCount    !== undefined) update.review_count    = patch.reviewCount;
-    const { error } = await w.from('services').update(update).eq('id', id);
-    if (error) throw error;
+    await _patch('services', `id=eq.${id}`, update);
   },
 
   async deleteService(id: string): Promise<void> {
-    const { error } = await w.from('services').delete().eq('id', id);
-    if (error) throw error;
+    await _delete('services', `id=eq.${id}`);
   },
 
   // ── Orders ─────────────────────────────────────────────────────────────────
@@ -643,15 +654,15 @@ export const mutations = {
   },
 
   async markNotificationRead(id: string): Promise<void> {
-    await w.from('notifications').update({ read: true }).eq('id', id);
+    await _patch('notifications', `id=eq.${id}`, { read: true });
   },
 
   async markAllNotificationsRead(userId: string): Promise<void> {
-    await w.from('notifications').update({ read: true }).eq('user_id', userId);
+    await _patch('notifications', `user_id=eq.${userId}`, { read: true });
   },
 
   async deleteNotification(id: string): Promise<void> {
-    await w.from('notifications').delete().eq('id', id);
+    await _delete('notifications', `id=eq.${id}`);
   },
 
   // ── Homepage Config ─────────────────────────────────────────────────────────
@@ -660,15 +671,15 @@ export const mutations = {
     const update: Record<string, unknown> = {};
     if (patch.announcementBar       !== undefined) update.announcement_bar        = patch.announcementBar;
     if (patch.announcementBarActive !== undefined) update.announcement_bar_active = patch.announcementBarActive;
-    if (patch.heroSlides            !== undefined) update.hero_slides             = patch.heroSlides as unknown as import('./database.types').Json;
-    if (patch.miniBanners           !== undefined) update.mini_banners            = patch.miniBanners as unknown as import('./database.types').Json;
+    if (patch.heroSlides            !== undefined) update.hero_slides             = patch.heroSlides;
+    if (patch.miniBanners           !== undefined) update.mini_banners            = patch.miniBanners;
     if (patch.showProducts          !== undefined) update.show_products           = patch.showProducts;
     if (patch.showServices          !== undefined) update.show_services           = patch.showServices;
     if (patch.showStores            !== undefined) update.show_stores             = patch.showStores;
     if (patch.showTrustBadges       !== undefined) update.show_trust_badges       = patch.showTrustBadges;
     if (patch.showSellerCta         !== undefined) update.show_seller_cta         = patch.showSellerCta;
     if (patch.showBrandLogos        !== undefined) update.show_brand_logos        = patch.showBrandLogos;
-    if (patch.brandLogos            !== undefined) update.brand_logos             = patch.brandLogos as unknown as import('./database.types').Json;
+    if (patch.brandLogos            !== undefined) update.brand_logos             = patch.brandLogos;
     if (patch.showNewsletter        !== undefined) update.show_newsletter         = patch.showNewsletter;
     if (patch.newsletterTitle       !== undefined) update.newsletter_title        = patch.newsletterTitle;
     if (patch.newsletterSubtitle    !== undefined) update.newsletter_subtitle     = patch.newsletterSubtitle;
@@ -676,31 +687,26 @@ export const mutations = {
     if (patch.showBestDeals         !== undefined) update.show_best_deals         = patch.showBestDeals;
     if (patch.showCollectionList    !== undefined) update.show_collection_list    = patch.showCollectionList;
     update.updated_at = new Date().toISOString();
-    await w.from('homepage_config').update(update).eq('id', 1);
+    await _patch('homepage_config', 'id=eq.1', update);
   },
 
   // ── Withdrawal Requests ─────────────────────────────────────────────────────
 
   async createWithdrawalRequest(data: Omit<WithdrawalRequest, 'id'>): Promise<string> {
-    const { data: row, error } = await w
-      .from('withdrawal_requests')
-      .insert({
-        entity_type:  data.entityType,
-        entity_id:    data.entityId,
-        entity_name:  data.entityName,
-        owner_name:   data.ownerName,
-        amount:       data.amount,
-        bank_account: data.bankAccount,
-        ifsc:         data.ifsc,
-        status:       data.status,
-        note:         data.note ?? null,
-        requested_at: data.requestedAt ?? new Date().toISOString(),
-        processed_at: data.processedAt ?? null,
-      })
-      .select('id')
-      .single();
-    if (error) throw error;
-    return row!.id;
+    const row = await _postReturn<{ id: string }>('withdrawal_requests', {
+      entity_type:  data.entityType,
+      entity_id:    data.entityId,
+      entity_name:  data.entityName,
+      owner_name:   data.ownerName,
+      amount:       data.amount,
+      bank_account: data.bankAccount,
+      ifsc:         data.ifsc,
+      status:       data.status,
+      note:         data.note ?? null,
+      requested_at: data.requestedAt ?? new Date().toISOString(),
+      processed_at: data.processedAt ?? null,
+    });
+    return row.id;
   },
 
   async updateWithdrawalRequest(id: string, patch: Partial<WithdrawalRequest>): Promise<void> {
@@ -708,19 +714,18 @@ export const mutations = {
     if (patch.status      !== undefined) update.status       = patch.status;
     if (patch.note        !== undefined) update.note         = patch.note;
     if (patch.processedAt !== undefined) update.processed_at = patch.processedAt;
-    await w.from('withdrawal_requests').update(update).eq('id', id);
+    await _patch('withdrawal_requests', `id=eq.${id}`, update);
   },
 
   // ── Agents ──────────────────────────────────────────────────────────────────
 
   async createAgent(agentId: string, data: Omit<Agent, 'id' | 'createdAt' | 'totalSales' | 'totalOrders' | 'walletBalance' | 'totalEarned'>): Promise<void> {
-    const { error } = await w.from('agents').insert({
+    await _post('agents', {
       id:              agentId,
       agent_code:      data.agentCode,
       commission_rate: data.commissionRate,
       status:          data.status,
     });
-    if (error) throw error;
   },
 
   async updateAgent(id: string, patch: Partial<Agent>): Promise<void> {
@@ -733,22 +738,22 @@ export const mutations = {
     if (patch.totalSales     !== undefined) update.total_sales     = patch.totalSales;
     if (patch.activatedAt    !== undefined) update.activated_at    = patch.activatedAt;
     if (patch.activatedBy    !== undefined) update.activated_by    = patch.activatedBy;
-    await w.from('agents').update(update).eq('id', id);
+    await _patch('agents', `id=eq.${id}`, update);
   },
 
   // ── Wallets ──────────────────────────────────────────────────────────────────
 
   async creditWallet(userId: string, amount: number, description: string, referenceId?: string): Promise<void> {
-    // Get wallet id
-    const { data: wallet } = await w.from('wallets').select('id, balance, total_earned').eq('user_id', userId).single();
+    const wallets = await _get<{ id: string; balance: number; total_earned: number }>('wallets', `user_id=eq.${userId}&select=id,balance,total_earned&limit=1`);
+    const wallet = wallets[0];
     if (!wallet) return;
 
-    await w.from('wallets').update({
+    await _patch('wallets', `id=eq.${wallet.id}`, {
       balance:      wallet.balance + amount,
       total_earned: wallet.total_earned + amount,
-    }).eq('id', wallet.id);
+    });
 
-    await w.from('wallet_transactions').insert({
+    await _post('wallet_transactions', {
       wallet_id:      wallet.id,
       type:           'credit',
       amount,
@@ -761,14 +766,14 @@ export const mutations = {
   // ── User Activities ──────────────────────────────────────────────────────────
 
   async trackActivity(data: Omit<UserActivity, 'id' | 'createdAt'>): Promise<void> {
-    await w.from('user_activities').insert({
+    await _post('user_activities', {
       user_id:    data.userId,
       user_name:  data.userName,
       user_email: data.userEmail,
       user_role:  data.userRole,
       event:      data.event,
       page:       data.page ?? null,
-      metadata:   (data.metadata ?? {}) as unknown as import('./database.types').Json,
+      metadata:   data.metadata ?? {},
       session_id: data.sessionId ?? null,
     });
   },
