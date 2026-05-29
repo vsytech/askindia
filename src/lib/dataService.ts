@@ -420,16 +420,22 @@ export const mutations = {
   // ── Orders ─────────────────────────────────────────────────────────────────
 
   async createOrder(data: Omit<Order, 'id'>): Promise<string> {
-    // Generate order ID
-    const { data: idData } = await supabase.rpc('generate_order_id');
-    const orderId = (idData as unknown as string) ?? `ORD${Date.now()}`;
+    const orderId = 'ORD' + Date.now().toString(36).toUpperCase();
 
-    const { error } = await w.from('orders').insert({
+    // store_id column is UUID — pass null for demo/placeholder IDs that aren't real UUIDs
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const storeId = UUID_RE.test(data.storeId ?? '') ? data.storeId : null;
+
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Supabase timeout')), 8000)
+    );
+
+    const insert = w.from('orders').insert({
       id:               orderId,
       customer_id:      data.customerId,
       customer_name:    data.customerName,
       customer_email:   data.customerEmail,
-      store_id:         data.storeId,
+      store_id:         storeId,
       store_name:       data.storeName,
       items:            data.items as unknown as import('./database.types').Json,
       subtotal:         data.subtotal,
@@ -446,6 +452,8 @@ export const mutations = {
       agent_code:       data.agentCode ?? null,
       agent_commission: data.agentCommission ?? null,
     });
+
+    const { error } = await Promise.race([insert, timeout]);
     if (error) throw error;
     return orderId;
   },
@@ -464,8 +472,7 @@ export const mutations = {
   // ── Service Orders ──────────────────────────────────────────────────────────
 
   async createServiceOrder(data: Omit<ServiceOrder, 'id'>): Promise<string> {
-    const { data: idData } = await supabase.rpc('generate_service_order_id');
-    const orderId = (idData as unknown as string) ?? `SVC${Date.now()}`;
+    const orderId = 'SVC' + Date.now().toString(36).toUpperCase();
 
     const { error } = await w.from('service_orders').insert({
       id:               orderId,

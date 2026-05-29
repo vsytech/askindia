@@ -39,12 +39,18 @@ export const CustomerCheckout: React.FC = () => {
     setPlacing(true);
     setPlaceError('');
 
-    // Find the correct store for cart items (use first product's store_id if available)
+    // Only call Supabase if the user has a real auth session (UUID id).
+    // Demo-login users have non-UUID ids and no active Supabase session.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const hasRealSession = isSupabaseConfigured && UUID_RE.test(currentUser?.id ?? '');
+
+    // Find the correct store for cart items, preferring real UUID stores over demo placeholders
+    const realStores = stores.filter(s => UUID_RE.test(s.id));
     const firstProduct = cart[0]?.product;
     const targetStore = firstProduct
-      ? (stores.find(s => s.id === (firstProduct as any).storeId) ?? stores[0])
-      : stores[0];
-    const storeId   = targetStore?.id   ?? 'global';
+      ? (realStores.find(s => s.id === (firstProduct as any).storeId) ?? realStores[0] ?? stores[0])
+      : (realStores[0] ?? stores[0]);
+    const storeId   = targetStore?.id   ?? '';
     const storeName = targetStore?.name ?? 'AskIndia Store';
 
     const items = cart.map(({ product, quantity }) => ({
@@ -80,13 +86,20 @@ export const CustomerCheckout: React.FC = () => {
     };
 
     try {
-      if (isSupabaseConfigured) {
-        // Write to database — this makes the order visible to admin & store owner
-        const dbId = await mutations.createOrder(orderData);
-        orderIdRef.current = dbId;
-        addOrder(orderData, dbId);   // pass real DB id so Zustand matches DB
+      if (hasRealSession) {
+        try {
+          // Write to Supabase — makes order visible to admin & store owner in real-time
+          const dbId = await mutations.createOrder(orderData);
+          orderIdRef.current = dbId;
+          addOrder(orderData, dbId);
+        } catch (dbErr) {
+          // Supabase unreachable (paused project, network issue) — save locally so
+          // the customer still gets their confirmation and order history
+          console.warn('[Checkout] Supabase unavailable, saving order locally:', dbErr);
+          addOrder(orderData, orderIdRef.current);
+        }
       } else {
-        addOrder(orderData);         // mock / offline mode
+        addOrder(orderData);         // mock / offline / demo mode
       }
 
       track('checkout_complete', { total, itemCount: cart.length }, '/shop/checkout');
@@ -94,7 +107,7 @@ export const CustomerCheckout: React.FC = () => {
       setStep('success');
       setTimeout(() => { clearCart(); }, 500);
     } catch (err) {
-      console.error('[Checkout] createOrder failed:', err);
+      console.error('[Checkout] Order failed:', err);
       setPlaceError('Failed to place order. Please try again.');
     } finally {
       setPlacing(false);
