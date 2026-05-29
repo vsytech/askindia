@@ -1,20 +1,119 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-IN" dir="ltr">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0d1f6e" />
-    <meta name="description" content="AskIndia — India's Unified Marketplace for products, services and local stores." />
-    <meta property="og:title" content="AskIndia — India's Unified Marketplace" />
-    <meta property="og:description" content="Products from verified stores, services from trusted providers — all in your city." />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- ── Primary Meta ─────────────────────────────────────────── -->
     <title>AskIndia — India's Unified Marketplace</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <meta name="description"   content="Shop products from verified stores, book local services — all in your city. AskIndia is India's unified marketplace." />
+    <meta name="keywords"      content="online shopping india, local stores, home services, ecommerce, buy online india, askindia" />
+    <meta name="author"        content="AskIndia Technologies Pvt. Ltd." />
+    <meta name="robots"        content="index, follow, max-snippet:-1, max-image-preview:large" />
+    <meta name="theme-color"   content="#0D1F6E" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color"   content="#0D1F6E" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme"  content="light" />
+
+    <!-- ── Canonical ────────────────────────────────────────────── -->
+    <link rel="canonical" href="https://askindia.shop/" />
+
+    <!-- ── Open Graph ───────────────────────────────────────────── -->
+    <meta property="og:type"          content="website" />
+    <meta property="og:site_name"     content="AskIndia" />
+    <meta property="og:url"           content="https://askindia.shop/" />
+    <meta property="og:title"         content="AskIndia — India's Unified Marketplace" />
+    <meta property="og:description"   content="Products from verified stores, services from trusted providers — all in your city." />
+    <meta property="og:image"         content="https://askindia.shop/og-image.jpg" />
+    <meta property="og:image:width"   content="1200" />
+    <meta property="og:image:height"  content="630" />
+    <meta property="og:image:alt"     content="AskIndia — India's Unified Marketplace" />
+    <meta property="og:locale"        content="en_IN" />
+
+    <!-- ── Twitter Card ─────────────────────────────────────────── -->
+    <meta name="twitter:card"         content="summary_large_image" />
+    <meta name="twitter:site"         content="@askindia" />
+    <meta name="twitter:creator"      content="@askindia" />
+    <meta name="twitter:title"        content="AskIndia — India's Unified Marketplace" />
+    <meta name="twitter:description"  content="Products from verified stores, services from trusted providers — all in your city." />
+    <meta name="twitter:image"        content="https://askindia.shop/og-image.jpg" />
+
+    <!-- ── PWA / App ────────────────────────────────────────────── -->
+    <link rel="icon"              type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon"  href="/apple-touch-icon.png" />
+    <link rel="manifest"          href="/site.webmanifest" />
+    <meta name="mobile-web-app-capable"       content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title"   content="AskIndia" />
+    <meta name="application-name"             content="AskIndia" />
+    <meta name="msapplication-TileColor"      content="#0D1F6E" />
+    <meta name="msapplication-config"         content="/browserconfig.xml" />
+
+    <!-- ── Structured Data (JSON-LD) ────────────────────────────── -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "AskIndia",
+      "alternateName": "AskIndia Marketplace",
+      "url": "https://askindia.shop",
+      "description": "India's Unified Marketplace for products and local services",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://askindia.shop/?q={search_term_string}",
+        "query-input": "required name=search_term_string"
+      },
+      "publisher": {
+        "@type": "Organization",
+        "name": "AskIndia Technologies Pvt. Ltd.",
+        "url": "https://askindia.shop",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://askindia.shop/logo.png"
+        },
+        "contactPoint": {
+          "@type": "ContactPoint",
+          "telephone": "+91-9999999999",
+          "contactType": "customer service",
+          "areaServed": "IN",
+          "availableLanguage": ["English", "Hindi"]
+        }
+      }
+    }
+    </script>
+
+    <!-- ── Performance: Preconnect ───────────────────────────────── -->
+    <link rel="preconnect"    href="https://fonts.googleapis.com" />
+    <link rel="preconnect"    href="https://fonts.gstatic.com" crossorigin />
+    <link rel="dns-prefetch"  href="https://www.googletagmanager.com" />
+    <link rel="dns-prefetch"  href="https://connect.facebook.net" />
+    <link rel="dns-prefetch"  href="https://res.cloudinary.com" />
+
+    <!-- ── Google Fonts ─────────────────────────────────────────── -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- ── Prevent FOUC on dark-mode capable devices ─────────────── -->
+    <style>
+      html { background: #ffffff; }
+      #root { min-height: 100dvh; }
+    </style>
   </head>
+
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Noscript fallback -->
+    <noscript>
+      <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;text-align:center;padding:2rem;">
+        <div>
+          <h1 style="color:#0D1F6E;font-size:1.5rem;margin-bottom:0.5rem;">AskIndia</h1>
+          <p style="color:#64748b;">Please enable JavaScript to use AskIndia — India's Unified Marketplace.</p>
+        </div>
+      </div>
+    </noscript>
   </body>
 </html>

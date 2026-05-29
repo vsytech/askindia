@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Store, ShoppingCart, Shield, Briefcase, Zap } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { AskIndiaLogo } from '../../components/AskIndiaLogo';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import { authService } from '../../lib/dataService';
 
 const DEMO_ACCOUNTS = [
   {
@@ -58,10 +60,17 @@ const FEATURES = [
   { icon: '🛒', title: 'Shop & Discover', desc: 'Products & services tailored to you' },
 ];
 
+const navigateByRole = (role: string, navigate: ReturnType<typeof useNavigate>) => {
+  if (role === 'admin')             navigate('/admin');
+  else if (role === 'store_owner')  navigate('/store');
+  else if (role === 'service_provider') navigate('/service-provider');
+  else if (role === 'agent')        navigate('/agent');
+  else                              navigate('/shop');
+};
+
 export const Login: React.FC = () => {
   const navigate = useNavigate();
-  const { login } = useAppStore();
-  const { trackActivity } = useAppStore();
+  const { login, setCurrentUser, loadFromSupabase, trackActivity } = useAppStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -71,18 +80,29 @@ export const Login: React.FC = () => {
   const handleDemoLogin = async (demoEmail: string, demoPassword: string) => {
     setError('');
     setIsLoading(true);
-    await new Promise(r => setTimeout(r, 500));
-    const result = login(demoEmail, demoPassword);
-    setIsLoading(false);
-    if (result.success) {
-      const { currentUser } = useAppStore.getState();
-      if (currentUser?.role === 'admin') navigate('/admin');
-      else if (currentUser?.role === 'store_owner') navigate('/store');
-      else if (currentUser?.role === 'service_provider') navigate('/service-provider');
-      else if (currentUser?.role === 'agent') navigate('/agent');
-      else navigate('/shop');
+
+    if (isSupabaseConfigured) {
+      // Supabase mode — use real auth
+      const result = await authService.signIn(demoEmail, demoPassword);
+      setIsLoading(false);
+      if (result.success && result.user) {
+        setCurrentUser(result.user);
+        await loadFromSupabase(result.user.id, result.user.role, result.user.storeId ?? null);
+        navigateByRole(result.user.role, navigate);
+      } else {
+        setError(result.error ?? 'Demo login failed.');
+      }
     } else {
-      setError(result.error ?? 'Demo login failed.');
+      // Mock mode — use local Zustand auth
+      await new Promise(r => setTimeout(r, 500));
+      const result = login(demoEmail, demoPassword);
+      setIsLoading(false);
+      if (result.success) {
+        const { currentUser } = useAppStore.getState();
+        navigateByRole(currentUser?.role ?? 'customer', navigate);
+      } else {
+        setError(result.error ?? 'Demo login failed.');
+      }
     }
   };
 
@@ -94,20 +114,31 @@ export const Login: React.FC = () => {
 
     setError('');
     setIsLoading(true);
-    await new Promise(r => setTimeout(r, 800));
-    const result = login(email.trim(), password);
-    setIsLoading(false);
 
-    if (result.success) {
-      const { currentUser } = useAppStore.getState();
-      trackActivity('login', { method: 'email', role: currentUser?.role ?? '' }, '/login');
-      if (currentUser?.role === 'admin') navigate('/admin');
-      else if (currentUser?.role === 'store_owner') navigate('/store');
-      else if (currentUser?.role === 'service_provider') navigate('/service-provider');
-      else if (currentUser?.role === 'agent') navigate('/agent');
-      else navigate('/shop');
+    if (isSupabaseConfigured) {
+      // Supabase mode
+      const result = await authService.signIn(email.trim(), password);
+      setIsLoading(false);
+      if (result.success && result.user) {
+        setCurrentUser(result.user);
+        await loadFromSupabase(result.user.id, result.user.role, result.user.storeId ?? null);
+        trackActivity('login', { method: 'email', role: result.user.role }, '/login');
+        navigateByRole(result.user.role, navigate);
+      } else {
+        setError(result.error ?? 'Login failed. Please check your credentials.');
+      }
     } else {
-      setError(result.error ?? 'Login failed. Please try again.');
+      // Mock mode
+      await new Promise(r => setTimeout(r, 800));
+      const result = login(email.trim(), password);
+      setIsLoading(false);
+      if (result.success) {
+        const { currentUser } = useAppStore.getState();
+        trackActivity('login', { method: 'email', role: currentUser?.role ?? '' }, '/login');
+        navigateByRole(currentUser?.role ?? 'customer', navigate);
+      } else {
+        setError(result.error ?? 'Login failed. Please try again.');
+      }
     }
   };
 

@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, CheckCircle, AlertCircle, Info } from 'lucide-react';
 import { AskIndiaLogo } from '../../components/AskIndiaLogo';
 import { useAppStore } from '../../store/useAppStore';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import { authService, mutations } from '../../lib/dataService';
 import clsx from 'clsx';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -131,7 +133,8 @@ const Field: React.FC<{
 
 export const RegisterStoreOwner: React.FC = () => {
   const navigate = useNavigate();
-  const { register, isEmailTaken, createStore, updateUserStoreId } = useAppStore();
+  const { register, isEmailTaken, createStore, updateUserStoreId,
+          setCurrentUser, loadFromSupabase } = useAppStore();
   const [step, setStep] = useState(1);
   const [data, setData] = useState<FormData>(INITIAL);
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
@@ -241,38 +244,86 @@ export const RegisterStoreOwner: React.FC = () => {
   const handleSubmit = async () => {
     if (!validate5()) return;
     setIsSubmitting(true);
-    await new Promise(r => setTimeout(r, 1200));
-    const result = register({
-      name: `${data.firstName} ${data.lastName}`,
-      email: data.email,
-      phone: data.phone,
-      city: data.city,
-      state: data.state,
-      role: 'store_owner',
-      passwordHash: data.password,
-    });
-    if (result.success && result.userId) {
-      const storeId = createStore({
-        ownerId: result.userId,
-        ownerName: `${data.firstName} ${data.lastName}`,
-        name: data.storeName,
-        slug: data.storeSlug,
-        tagline: data.storeTagline,
-        description: data.storeDescription,
-        logo: '🏪',
-        themeColor: '#4f46e5',
+
+    if (isSupabaseConfigured) {
+      // Supabase mode — create real account + store
+      const ownerName = `${data.firstName} ${data.lastName}`;
+      const signUpResult = await authService.signUp({
+        email: data.email,
+        password: data.password,
+        name: ownerName,
+        role: 'store_owner',
+        phone: data.phone,
         city: data.city,
         state: data.state,
-        commissionRate: 20,
-        status: 'pending',
-        storeType: 'product',
-        subdomain: data.storeSlug,
       });
-      updateUserStoreId(result.userId, storeId);
+
+      if (signUpResult.success && signUpResult.userId) {
+        try {
+          await mutations.createStore({
+            ownerId: signUpResult.userId,
+            ownerName,
+            name: data.storeName,
+            slug: data.storeSlug,
+            tagline: data.storeTagline,
+            description: data.storeDescription,
+            logo: '🏪',
+            themeColor: '#4f46e5',
+            city: data.city,
+            state: data.state,
+            commissionRate: 20,
+            status: 'pending',
+            storeType: 'product',
+            subdomain: data.storeSlug,
+          });
+        } catch (err) {
+          console.error('[RegisterStoreOwner] Store creation failed:', err);
+        }
+        // Sign the user in after successful registration
+        const signInResult = await authService.signIn(data.email, data.password);
+        if (signInResult.success && signInResult.user) {
+          setCurrentUser(signInResult.user);
+          await loadFromSupabase(signInResult.user.id, 'store_owner', signInResult.user.storeId ?? null);
+        }
+      }
+      setIsSubmitting(false);
+      if (signUpResult.success) setSubmitted(true);
+      else setErrors({ email: signUpResult.error });
+    } else {
+      // Mock mode
+      await new Promise(r => setTimeout(r, 1200));
+      const result = register({
+        name: `${data.firstName} ${data.lastName}`,
+        email: data.email,
+        phone: data.phone,
+        city: data.city,
+        state: data.state,
+        role: 'store_owner',
+        passwordHash: data.password,
+      });
+      if (result.success && result.userId) {
+        const storeId = createStore({
+          ownerId: result.userId,
+          ownerName: `${data.firstName} ${data.lastName}`,
+          name: data.storeName,
+          slug: data.storeSlug,
+          tagline: data.storeTagline,
+          description: data.storeDescription,
+          logo: '🏪',
+          themeColor: '#4f46e5',
+          city: data.city,
+          state: data.state,
+          commissionRate: 20,
+          status: 'pending',
+          storeType: 'product',
+          subdomain: data.storeSlug,
+        });
+        updateUserStoreId(result.userId, storeId);
+      }
+      setIsSubmitting(false);
+      if (result.success) setSubmitted(true);
+      else setErrors({ email: result.error });
     }
-    setIsSubmitting(false);
-    if (result.success) setSubmitted(true);
-    else setErrors({ email: result.error });
   };
 
   // ─── Success screen ───────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import type {
 } from '../types';
 import { SYSTEM_ROLES } from '../data/permissions';
 import { ADMIN_USER } from '../data/mockData';
+import { dataLoaders } from '../lib/dataService';
 
 export interface RegisteredUser extends User {
   passwordHash: string;
@@ -33,6 +34,12 @@ interface AppState {
   suspendedUsers: string[];   // user IDs that are suspended
 
   sidebarOpen: boolean;
+
+  // Supabase integration
+  supabaseReady: boolean;
+  loadingData: boolean;
+  setCurrentUser: (user: User | null) => void;
+  loadFromSupabase: (userId: string, role: User['role'], storeId?: string | null) => Promise<void>;
 
   // Auth
   login: (email: string, password: string) => { success: boolean; error?: string };
@@ -651,6 +658,10 @@ export const useAppStore = create<AppState>()(
       suspendedUsers: [],
       sidebarOpen: true,
 
+      // Supabase state — set to true immediately if running in mock mode
+      supabaseReady: false,
+      loadingData: false,
+
       // ── Auth ────────────────────────────────────────────────────────────────
 
       isEmailTaken: (email) => {
@@ -682,6 +693,54 @@ export const useAppStore = create<AppState>()(
       },
 
       logout: () => set({ currentUser: null, cart: [] }),
+
+      // ── Supabase integration ─────────────────────────────────────────────────
+
+      setCurrentUser: (user) => set({ currentUser: user }),
+
+      loadFromSupabase: async (userId, role, storeId) => {
+        set({ loadingData: true });
+        try {
+          const [
+            homepageRes, productsRes, servicesRes, storesRes,
+            ordersRes, serviceOrdersRes, notificationsRes, agentsRes,
+            withdrawalsRes, activitiesRes, abandonedCartsRes, customRolesRes,
+          ] = await Promise.allSettled([
+            dataLoaders.loadHomepageConfig(),
+            dataLoaders.loadProducts(role, storeId ?? undefined),
+            dataLoaders.loadServices(role, role === 'service_provider' ? userId : undefined),
+            dataLoaders.loadStores(),
+            dataLoaders.loadOrders(role, userId, storeId ?? undefined),
+            dataLoaders.loadServiceOrders(role, userId),
+            dataLoaders.loadNotifications(userId),
+            dataLoaders.loadAgents(),
+            dataLoaders.loadWithdrawalRequests(role !== 'admin' ? userId : undefined),
+            dataLoaders.loadUserActivities(),
+            dataLoaders.loadAbandonedCarts(),
+            dataLoaders.loadCustomRoles(),
+          ]);
+
+          // Only overwrite state slices that loaded successfully.
+          // Failed slices keep their existing (demo seed) values.
+          const patch: Partial<AppState> = { loadingData: false, supabaseReady: true };
+          if (homepageRes.status === 'fulfilled' && homepageRes.value) patch.homepageConfig = homepageRes.value;
+          if (productsRes.status === 'fulfilled')     patch.products           = productsRes.value;
+          if (servicesRes.status === 'fulfilled')     patch.services           = servicesRes.value;
+          if (storesRes.status === 'fulfilled')       patch.stores             = storesRes.value;
+          if (ordersRes.status === 'fulfilled')       patch.orders             = ordersRes.value;
+          if (serviceOrdersRes.status === 'fulfilled') patch.serviceOrders     = serviceOrdersRes.value;
+          if (notificationsRes.status === 'fulfilled') patch.notifications     = notificationsRes.value;
+          if (agentsRes.status === 'fulfilled')        patch.agents            = agentsRes.value;
+          if (withdrawalsRes.status === 'fulfilled')   patch.withdrawalRequests = withdrawalsRes.value;
+          if (activitiesRes.status === 'fulfilled')    patch.userActivities    = activitiesRes.value;
+          if (abandonedCartsRes.status === 'fulfilled') patch.abandonedCarts   = abandonedCartsRes.value;
+          if (customRolesRes.status === 'fulfilled')   patch.customRoles       = customRolesRes.value;
+
+          set(patch);
+        } catch {
+          set({ loadingData: false, supabaseReady: true });
+        }
+      },
 
       // ── Agents ──────────────────────────────────────────────────────────────
 

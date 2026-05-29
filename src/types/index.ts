@@ -193,6 +193,9 @@ export interface Order {
   agentName?: string;
   agentCode?: string;
   agentCommission?: number;  // amount earned by agent
+  trackingNumber?: string;
+  courierName?: string;
+  cancelReason?: string;
   createdAt: string;
 }
 
@@ -224,7 +227,7 @@ export interface ServiceOrder {
 
 export interface WithdrawalRequest {
   id: string;
-  entityType: 'store' | 'service_provider';
+  entityType: 'store' | 'service_provider' | 'agent';
   entityId: string;
   entityName: string;
   ownerName: string;

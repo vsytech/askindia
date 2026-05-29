@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, CheckCircle, ArrowLeft, ArrowRight, ShoppingCart } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { AskIndiaLogo } from '../../components/AskIndiaLogo';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import { authService } from '../../lib/dataService';
 import clsx from 'clsx';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -142,7 +144,7 @@ const BLANK: FormData = {
 
 export const RegisterCustomer: React.FC = () => {
   const navigate = useNavigate();
-  const { register, isEmailTaken } = useAppStore();
+  const { register, isEmailTaken, setCurrentUser, loadFromSupabase } = useAppStore();
 
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormData>(BLANK);
@@ -176,20 +178,48 @@ export const RegisterCustomer: React.FC = () => {
 
     // Submit
     setIsLoading(true);
-    await new Promise(r => setTimeout(r, 1000));
 
-    const result = register({
-      name: `${form.firstName.trim()} ${form.lastName.trim()}`,
-      email: form.email.trim().toLowerCase(),
-      role: 'customer',
-      passwordHash: form.password,
-    });
-    setIsLoading(false);
-
-    if (result.success) {
-      setDone(true);
+    if (isSupabaseConfigured) {
+      // Supabase mode — create real account
+      const result = await authService.signUp({
+        email: form.email.trim().toLowerCase(),
+        password: form.password,
+        name: `${form.firstName.trim()} ${form.lastName.trim()}`,
+        role: 'customer',
+        phone: form.phone,
+        city: form.city,
+        state: form.state,
+      });
+      setIsLoading(false);
+      if (result.success) {
+        // Try to sign in immediately so the session is live
+        const signInResult = await authService.signIn(
+          form.email.trim().toLowerCase(),
+          form.password
+        );
+        if (signInResult.success && signInResult.user) {
+          setCurrentUser(signInResult.user);
+          await loadFromSupabase(signInResult.user.id, 'customer', null);
+        }
+        setDone(true);
+      } else {
+        setErrors({ email: result.error });
+      }
     } else {
-      setErrors({ email: result.error });
+      // Mock mode
+      await new Promise(r => setTimeout(r, 1000));
+      const result = register({
+        name: `${form.firstName.trim()} ${form.lastName.trim()}`,
+        email: form.email.trim().toLowerCase(),
+        role: 'customer',
+        passwordHash: form.password,
+      });
+      setIsLoading(false);
+      if (result.success) {
+        setDone(true);
+      } else {
+        setErrors({ email: result.error });
+      }
     }
   };
 

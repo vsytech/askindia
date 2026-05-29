@@ -1,0 +1,30 @@
+# AskIndia — India's Unified Marketplace
+# https://askindia.shop
+
+User-agent: *
+Allow: /
+Allow: /shop/stores
+Allow: /shop/store/
+
+# Keep authenticated / dashboard areas private
+Disallow: /admin/
+Disallow: /store/
+Disallow: /service-provider/
+Disallow: /agent/
+Disallow: /shop/cart
+Disallow: /shop/checkout
+Disallow: /shop/orders
+
+# Registration pages — indexable so they can attract sellers
+Allow: /register/
+Allow: /login
+
+# API or internal paths (future-proofing)
+Disallow: /api/
+Disallow: /_internal/
+
+# Crawl-delay for polite bots
+Crawl-delay: 2
+
+# Sitemap location
+Sitemap: https://askindia.shop/sitemap.xml

@@ -11,6 +11,7 @@ import { useTracking } from '../hooks/useTracking';
 import { PRODUCT_CATEGORIES, SERVICE_CATEGORIES, formatCurrency } from '../data/mockData';
 import type { Product, Service } from '../types';
 import { AskIndiaLogo } from '../components/AskIndiaLogo';
+import { env } from '../utils/env';
 import clsx from 'clsx';
 
 /* ── Constants ────────────────────────────────────────────────────────────── */
@@ -892,8 +893,16 @@ export const Landing: React.FC = () => {
               </div>
               <p className="text-slate-400 text-xs leading-relaxed mb-4">India's unified marketplace for products & services. Empowering local businesses to grow digitally.</p>
               <div className="flex items-center gap-2 mb-4">
-                {['📘','📸','🐦','▶️'].map((icon,i)=>(
-                  <button key={i} className="w-8 h-8 bg-slate-800 hover:bg-slate-700 rounded-lg flex items-center justify-center text-sm transition-colors">{icon}</button>
+                {([
+                  {icon:'📘', href:env.social.facebook,  label:'Facebook'},
+                  {icon:'📸', href:env.social.instagram, label:'Instagram'},
+                  {icon:'🐦', href:env.social.twitter,   label:'Twitter'},
+                  {icon:'▶️', href:env.social.youtube,   label:'YouTube'},
+                ] as const).map(({icon,href,label})=>(
+                  <a key={label} href={href} target="_blank" rel="noopener noreferrer" aria-label={label}
+                    className="w-8 h-8 bg-slate-800 hover:bg-slate-700 rounded-lg flex items-center justify-center text-sm transition-colors">
+                    {icon}
+                  </a>
                 ))}
               </div>
               <p className="text-slate-500 text-xs font-medium">Made with ❤️ in India 🇮🇳</p>
@@ -926,9 +935,10 @@ export const Landing: React.FC = () => {
           <div className="border-t border-slate-800 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
             <p className="text-slate-500 text-xs">© {new Date().getFullYear()} AskIndia Technologies Pvt. Ltd. All rights reserved.</p>
             <div className="flex items-center gap-4">
-              {['Privacy','Terms','Sitemap','Refund Policy'].map(l=>(
-                <a key={l} href="#" className="text-slate-500 text-xs hover:text-slate-300 transition-colors">{l}</a>
-              ))}
+              <a href={env.legal.privacy}  className="text-slate-500 text-xs hover:text-slate-300 transition-colors">Privacy</a>
+              <a href={env.legal.terms}    className="text-slate-500 text-xs hover:text-slate-300 transition-colors">Terms</a>
+              <a href="/sitemap.xml"        className="text-slate-500 text-xs hover:text-slate-300 transition-colors">Sitemap</a>
+              <a href={env.legal.refund}   className="text-slate-500 text-xs hover:text-slate-300 transition-colors">Refund Policy</a>
             </div>
           </div>
         </div>

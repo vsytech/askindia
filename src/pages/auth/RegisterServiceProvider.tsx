@@ -4,6 +4,8 @@ import { Briefcase, Eye, EyeOff, CheckCircle, AlertCircle, MapPin, Star, Shield,
 import { useAppStore } from '../../store/useAppStore';
 import { SERVICE_CATEGORIES } from '../../data/mockData';
 import { AskIndiaLogo } from '../../components/AskIndiaLogo';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import { authService } from '../../lib/dataService';
 import clsx from 'clsx';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -116,7 +118,7 @@ const Field: React.FC<{
 
 export const RegisterServiceProvider: React.FC = () => {
   const navigate = useNavigate();
-  const { register, isEmailTaken } = useAppStore();
+  const { register, isEmailTaken, setCurrentUser, loadFromSupabase } = useAppStore();
   const [step, setStep] = useState(1);
   const [data, setData] = useState<FormData>(INITIAL);
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
@@ -217,19 +219,45 @@ export const RegisterServiceProvider: React.FC = () => {
   const handleSubmit = async () => {
     if (!validate5()) return;
     setIsSubmitting(true);
-    await new Promise(r => setTimeout(r, 1200));
-    const result = register({
-      name: `${data.firstName.trim()} ${data.lastName.trim()}`,
-      email: data.email.trim(),
-      role: 'service_provider',
-      passwordHash: data.password,
-      phone: data.phone,
-      city: data.panIndia ? 'Pan India' : (data.availableCities[0] || data.city),
-      state: data.state,
-    });
-    setIsSubmitting(false);
-    if (result.success) setSubmitted(true);
-    else setErrors({ email: result.error });
+
+    if (isSupabaseConfigured) {
+      // Supabase mode — create real account
+      const result = await authService.signUp({
+        email: data.email.trim(),
+        password: data.password,
+        name: `${data.firstName.trim()} ${data.lastName.trim()}`,
+        role: 'service_provider',
+        phone: data.phone,
+        city: data.panIndia ? 'Pan India' : (data.availableCities[0] || data.city),
+        state: data.state,
+      });
+      if (result.success) {
+        // Auto sign-in after registration
+        const signInResult = await authService.signIn(data.email.trim(), data.password);
+        if (signInResult.success && signInResult.user) {
+          setCurrentUser(signInResult.user);
+          await loadFromSupabase(signInResult.user.id, 'service_provider', null);
+        }
+      }
+      setIsSubmitting(false);
+      if (result.success) setSubmitted(true);
+      else setErrors({ email: result.error });
+    } else {
+      // Mock mode
+      await new Promise(r => setTimeout(r, 1200));
+      const result = register({
+        name: `${data.firstName.trim()} ${data.lastName.trim()}`,
+        email: data.email.trim(),
+        role: 'service_provider',
+        passwordHash: data.password,
+        phone: data.phone,
+        city: data.panIndia ? 'Pan India' : (data.availableCities[0] || data.city),
+        state: data.state,
+      });
+      setIsSubmitting(false);
+      if (result.success) setSubmitted(true);
+      else setErrors({ email: result.error });
+    }
   };
 
   // ─── Success screen ───────────────────────────────────────────────────────
