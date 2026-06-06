@@ -25,35 +25,40 @@ export function useSupabaseInit(): void {
     }
 
     // ── Real Supabase mode ────────────────────────────────────────────────────
-    // Load public catalogue data immediately so the shop shows real products
-    // even for unauthenticated guests, before the auth check resolves.
-    Promise.allSettled([
-      dataLoaders.loadProducts('customer'),
-      dataLoaders.loadServices('customer'),
-      dataLoaders.loadStores(),
-      dataLoaders.loadHomepageConfig(),
-    ]).then(([productsRes, servicesRes, storesRes, homepageRes]) => {
-      const patch: Record<string, unknown> = {};
-      // Only overwrite if Supabase returned real data — never replace with an empty array,
-      // so the homepage always shows something (demo fallback) if the DB has no rows yet.
-      if (productsRes.status === 'fulfilled' && Array.isArray(productsRes.value) && productsRes.value.length > 0) {
-        patch.products = productsRes.value;
-      }
-      if (servicesRes.status === 'fulfilled' && Array.isArray(servicesRes.value) && servicesRes.value.length > 0) {
-        patch.services = servicesRes.value;
-      }
-      if (storesRes.status === 'fulfilled' && Array.isArray(storesRes.value) && storesRes.value.length > 0) {
-        patch.stores = storesRes.value;
-      }
-      if (homepageRes.status === 'fulfilled' && homepageRes.value) {
-        patch.homepageConfig = homepageRes.value;
-      }
-      if (Object.keys(patch).length > 0) {
-        useAppStore.setState(patch as any);
-      }
-    }).catch(err => {
-      console.warn('[useSupabaseInit] Public data prefetch failed:', err);
-    });
+    // Load public catalogue data for unauthenticated guests so the homepage
+    // shows real products before the auth check resolves.
+    // Skip if a user is already logged in — their loadFromSupabase call handles data.
+    const { currentUser } = useAppStore.getState();
+    if (!currentUser) {
+      Promise.allSettled([
+        dataLoaders.loadProducts('customer'),
+        dataLoaders.loadServices('customer'),
+        dataLoaders.loadStores(),
+        dataLoaders.loadHomepageConfig(),
+      ]).then(([productsRes, servicesRes, storesRes, homepageRes]) => {
+        // Re-check: if user logged in while prefetch was in flight, skip overwrite
+        if (useAppStore.getState().currentUser) return;
+        const patch: Record<string, unknown> = {};
+        // Only overwrite if Supabase returned real data — never replace with an empty array.
+        if (productsRes.status === 'fulfilled' && Array.isArray(productsRes.value) && productsRes.value.length > 0) {
+          patch.products = productsRes.value;
+        }
+        if (servicesRes.status === 'fulfilled' && Array.isArray(servicesRes.value) && servicesRes.value.length > 0) {
+          patch.services = servicesRes.value;
+        }
+        if (storesRes.status === 'fulfilled' && Array.isArray(storesRes.value) && storesRes.value.length > 0) {
+          patch.stores = storesRes.value;
+        }
+        if (homepageRes.status === 'fulfilled' && homepageRes.value) {
+          patch.homepageConfig = homepageRes.value;
+        }
+        if (Object.keys(patch).length > 0) {
+          useAppStore.setState(patch as any);
+        }
+      }).catch(err => {
+        console.warn('[useSupabaseInit] Public data prefetch failed:', err);
+      });
+    }
 
     // onAuthStateChange fires immediately with the current session state,
     // so we don't need a separate getSession() call on mount.

@@ -1,9 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { AppLayout } from '../../components/layout/AppLayout';
 import { PRODUCT_CATEGORIES, formatCurrency } from '../../data/mockData';
 import { useAppStore } from '../../store/useAppStore';
-import { Search, ShoppingCart, Star, X, MapPin, SlidersHorizontal, Filter } from 'lucide-react';
+import { Search, ShoppingCart, Star, X, MapPin, SlidersHorizontal, Filter, Eye } from 'lucide-react';
 import type { Product } from '../../types';
 import clsx from 'clsx';
 
@@ -27,9 +27,17 @@ const PRICE_PRESETS = [
 
 export const CustomerStorefront: React.FC = () => {
   const { products, currentUser, addToCart } = useAppStore();
+  const [searchParams] = useSearchParams();
+  const isCustomer = currentUser?.role === 'customer';
 
   const [search, setSearch] = useState('');
   const [selectedCats, setSelectedCats] = useState<string[]>([]);
+
+  // Pre-select category from URL param (?cat=categoryId)
+  useEffect(() => {
+    const cat = searchParams.get('cat');
+    if (cat) setSelectedCats([cat]);
+  }, [searchParams]);
   const [priceMin, setPriceMin] = useState('');
   const [priceMax, setPriceMax] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('featured');
@@ -471,21 +479,28 @@ export const CustomerStorefront: React.FC = () => {
                           )}
                         </div>
 
-                        <button
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); available && handleAddToCart(product); }}
-                          disabled={!available}
-                          className={clsx(
-                            'w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150',
-                            !available
-                              ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                              : addedId === product.id
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-brand-600 text-white hover:bg-brand-700 active:scale-95'
-                          )}
-                        >
-                          <ShoppingCart className="h-4 w-4" />
-                          {!available ? 'Out of Stock' : addedId === product.id ? 'Added to Cart!' : 'Add to Cart'}
-                        </button>
+                        {isCustomer ? (
+                          <button
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); available && handleAddToCart(product); }}
+                            disabled={!available}
+                            className={clsx(
+                              'w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150',
+                              !available
+                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                : addedId === product.id
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-brand-600 text-white hover:bg-brand-700 active:scale-95'
+                            )}
+                          >
+                            <ShoppingCart className="h-4 w-4" />
+                            {!available ? 'Out of Stock' : addedId === product.id ? 'Added to Cart!' : 'Add to Cart'}
+                          </button>
+                        ) : (
+                          <span className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors">
+                            <Eye className="h-4 w-4" />
+                            View Details
+                          </span>
+                        )}
                       </div>
                     </Link>
                   );

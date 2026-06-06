@@ -135,8 +135,8 @@ export default function App() {
             <Route path="/service-provider/profile"  element={<ProtectedRoute role="service_provider"><ServiceProviderProfile /></ProtectedRoute>} />
 
             {/* ── Customer ───────────────────────────────────────────────────── */}
-            <Route path="/shop"                  element={<ProtectedRoute role="customer"><CustomerStorefront /></ProtectedRoute>} />
-            <Route path="/shop/services"         element={<ProtectedRoute role="customer"><CustomerServices /></ProtectedRoute>} />
+            <Route path="/shop"                  element={<AnyAuthRoute><CustomerStorefront /></AnyAuthRoute>} />
+            <Route path="/shop/services"         element={<AnyAuthRoute><CustomerServices /></AnyAuthRoute>} />
             <Route path="/shop/stores"           element={<AnyAuthRoute><StoresListing /></AnyAuthRoute>} />
             <Route path="/shop/cart"             element={<ProtectedRoute role="customer"><CustomerCart /></ProtectedRoute>} />
             <Route path="/shop/checkout"         element={<ProtectedRoute role="customer"><CustomerCheckout /></ProtectedRoute>} />

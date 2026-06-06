@@ -353,14 +353,14 @@ export const Landing: React.FC = () => {
     navigate(currentUser.role==='admin'?'/admin':currentUser.role==='store_owner'?'/store':currentUser.role==='service_provider'?'/service-provider':currentUser.role==='agent'?'/agent':'/shop');
   };
 
-  const goAllProducts = () => {
+  const goAllProducts = (catId?: string) => {
     if(!currentUser){navigate('/login');return;}
-    currentUser.role==='customer'?navigate('/shop'):goDashboard();
+    navigate(catId ? `/shop?cat=${catId}` : '/shop');
   };
 
   const goAllServices = () => {
     if(!currentUser){navigate('/login');return;}
-    currentUser.role==='customer'?navigate('/shop/services'):goDashboard();
+    navigate('/shop/services');
   };
 
   const handleSearch = (q:string) => {
@@ -482,12 +482,12 @@ export const Landing: React.FC = () => {
         <div className="hidden sm:block border-t border-slate-100 bg-slate-50">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2">
             <div className="flex gap-1 overflow-x-auto scrollbar-hide">
-              <button onClick={()=>navigate(currentUser?.role==='customer'?'/shop':'/login')}
+              <button onClick={()=>navigate('/')}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-slate-600 hover:bg-white hover:text-accent-600 transition-all flex-shrink-0 whitespace-nowrap">
                 🏠 Home
               </button>
               {PRODUCT_CATEGORIES.slice(0,8).map(cat=>(
-                <button key={cat.id} onClick={()=>{goAllProducts();}}
+                <button key={cat.id} onClick={()=>goAllProducts(cat.id)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-slate-600 hover:bg-white hover:text-accent-600 transition-all flex-shrink-0 whitespace-nowrap">
                   {cat.icon} {cat.name}
                 </button>
@@ -542,7 +542,7 @@ export const Landing: React.FC = () => {
             </div>
             <div className="grid grid-cols-3 gap-3 p-4">
               {PRODUCT_CATEGORIES.map(cat=>(
-                <button key={cat.id} onClick={()=>{goAllProducts();setShowMobileCategories(false);}}
+                <button key={cat.id} onClick={()=>{goAllProducts(cat.id);setShowMobileCategories(false);}}
                   className="flex flex-col items-center gap-2 p-3 bg-slate-50 rounded-xl hover:bg-accent-50 transition-colors">
                   <span className="text-3xl">{cat.icon}</span>
                   <span className="text-xs font-medium text-slate-700 text-center leading-tight">{cat.name}</span>
@@ -567,7 +567,7 @@ export const Landing: React.FC = () => {
           <div className="max-w-7xl mx-auto px-4 sm:px-6">
             <div className={clsx('grid gap-3 sm:gap-4', activeMiniBanners.length>=3?'grid-cols-1 sm:grid-cols-3':activeMiniBanners.length===2?'grid-cols-2':'grid-cols-1')}>
               {activeMiniBanners.map(b=>(
-                <div key={b.id} onClick={goAllProducts}
+                <div key={b.id} onClick={()=>goAllProducts()}
                   className="relative overflow-hidden rounded-2xl p-4 sm:p-5 text-white cursor-pointer hover:shadow-xl hover:-translate-y-0.5 transition-all group flex items-center gap-4"
                   style={{background:`linear-gradient(135deg,${b.gradientFrom},${b.gradientTo})`}}>
                   <div className="absolute inset-0 opacity-15" style={{backgroundImage:'radial-gradient(circle at 80% 50%, white 0%, transparent 60%)'}}/>
@@ -630,7 +630,7 @@ export const Landing: React.FC = () => {
                   <h3 className="text-2xl font-extrabold leading-tight mb-2">Up to<br/>70% Off</h3>
                   <p className="text-white/80 text-xs leading-relaxed">Grab the best prices on top products before they're gone!</p>
                 </div>
-                <button onClick={goAllProducts} className="mt-4 bg-white text-accent-700 font-bold text-sm px-4 py-2.5 rounded-xl hover:bg-accent-50 transition-colors flex items-center gap-1.5 justify-center">
+                <button onClick={()=>goAllProducts()} className="mt-4 bg-white text-accent-700 font-bold text-sm px-4 py-2.5 rounded-xl hover:bg-accent-50 transition-colors flex items-center gap-1.5 justify-center">
                   Shop Now <ArrowRight className="h-4 w-4"/>
                 </button>
               </div>
@@ -649,7 +649,7 @@ export const Landing: React.FC = () => {
       {/* ── Promo Banners ────────────────────────────────────────────────── */}
       <section className="bg-white py-5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 grid sm:grid-cols-2 gap-3 sm:gap-4">
-          <div onClick={goAllProducts}
+          <div onClick={()=>goAllProducts()}
             className="relative bg-gradient-to-r from-brand-800 to-brand-600 rounded-2xl p-5 sm:p-6 overflow-hidden text-white flex items-center gap-4 cursor-pointer hover:shadow-xl hover:-translate-y-0.5 transition-all group">
             <div className="absolute inset-0 opacity-15" style={{backgroundImage:'radial-gradient(circle at 90% 50%, white 0%, transparent 60%)'}}/>
             <div className="text-4xl sm:text-5xl flex-shrink-0 group-hover:scale-110 transition-transform relative">💎</div>
@@ -683,7 +683,7 @@ export const Landing: React.FC = () => {
               {PRODUCT_CATEGORIES.map(cat=>{
                 const count = products.filter(p=>p.categoryId===cat.id&&p.status==='active').length;
                 return (
-                  <button key={cat.id} onClick={goAllProducts}
+                  <button key={cat.id} onClick={()=>goAllProducts(cat.id)}
                     className="flex flex-col items-center gap-2 p-2 sm:p-3 group">
                     <div className="w-14 h-14 sm:w-16 sm:h-16 bg-white rounded-full flex items-center justify-center text-2xl sm:text-3xl shadow-sm border border-slate-100 group-hover:shadow-md group-hover:border-accent-200 group-hover:scale-105 transition-all">
                       {cat.icon}

@@ -24,6 +24,8 @@ export const ProductDetail: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('Description');
   const [addedToCart, setAddedToCart] = useState(false);
 
+  const shopPath = currentUser?.role === 'customer' ? '/shop' : currentUser ? '/shop' : '/';
+
   if (!product) {
     return (
       <AppLayout title="Product Not Found">
@@ -31,8 +33,8 @@ export const ProductDetail: React.FC = () => {
           <div className="text-6xl mb-4">🔍</div>
           <h2 className="text-xl font-bold text-slate-800 mb-2">Product Not Found</h2>
           <p className="text-slate-400 mb-6">This product does not exist or has been removed.</p>
-          <button onClick={() => navigate(currentUser ? '/shop' : '/')} className="btn-primary flex items-center gap-2">
-            <ArrowLeft className="h-4 w-4" /> Back to Home
+          <button onClick={() => navigate(shopPath)} className="btn-primary flex items-center gap-2">
+            <ArrowLeft className="h-4 w-4" /> Back to Products
           </button>
         </div>
       </AppLayout>
@@ -78,7 +80,7 @@ export const ProductDetail: React.FC = () => {
 
         {/* Breadcrumb */}
         <nav className="flex items-center gap-1.5 text-sm text-slate-400 flex-wrap">
-          <Link to={currentUser ? '/shop' : '/'} className="hover:text-brand-600 transition-colors">All Products</Link>
+          <Link to={shopPath} className="hover:text-brand-600 transition-colors">All Products</Link>
           <ChevronRight className="h-3.5 w-3.5 flex-shrink-0" />
           <span className="text-slate-500">{product.category}</span>
           <ChevronRight className="h-3.5 w-3.5 flex-shrink-0" />
